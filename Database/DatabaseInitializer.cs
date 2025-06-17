@@ -63,13 +63,6 @@ namespace Notea.Database
 
             cmd.CommandText = @"
                 -- ===== 필기 시스템 테이블들 (Helpers/DatabaseHelper.cs 용) =====
-                CREATE TABLE IF NOT EXISTS subject (
-                    subJectId INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title VARCHAR NOT NULL,
-                    createdDate DATETIME NOT NULL,
-                    lastModifiedDate DATETIME NOT NULL
-                );
-
                 CREATE TABLE IF NOT EXISTS time (
                     timeId INTEGER PRIMARY KEY AUTOINCREMENT,
                     createdDate DATETIME NOT NULL,
@@ -124,7 +117,7 @@ namespace Notea.Database
                 );
 
                 CREATE TABLE IF NOT EXISTS Subject (
-                    Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    subjectId INTEGER PRIMARY KEY AUTOINCREMENT,
                     Name TEXT NOT NULL UNIQUE,
                     TotalStudyTimeSeconds INTEGER NOT NULL DEFAULT 0
                 );

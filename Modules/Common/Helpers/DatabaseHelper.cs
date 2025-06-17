@@ -618,12 +618,22 @@ namespace Notea.Modules.Common.Helpers
             {
                 lock (_lockObject)
                 {
-                    using var conn = GetConnection();
-                    conn.Open();
-                    using var cmd = conn.CreateCommand();
-                    cmd.CommandText = "SELECT COALESCE(SUM(TotalStudyTimeSeconds), 0) FROM Subject";
-                    var result = cmd.ExecuteScalar();
-                    return Convert.ToInt32(result);
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+                        using var cmd = conn.CreateCommand();
+
+                        // ✅ 실제 존재하는 StudySession 테이블에서 전체 학습시간 조회
+                        cmd.CommandText = "SELECT COALESCE(SUM(DurationSeconds), 0) FROM StudySession";
+                        var result = cmd.ExecuteScalar();
+                        return Convert.ToInt32(result);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] 전체 과목 학습시간 조회 오류: {ex.Message}");
+                        return 0;
+                    }
                 }
             });
         }
@@ -634,17 +644,27 @@ namespace Notea.Modules.Common.Helpers
             {
                 lock (_lockObject)
                 {
-                    using var conn = GetConnection();
-                    conn.Open();
-                    using var cmd = conn.CreateCommand();
-                    cmd.CommandText = "SELECT COALESCE(TotalStudyTimeSeconds, 0) FROM Subject WHERE Name = @name";
-                    cmd.Parameters.AddWithValue("@name", subjectName);
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+                        using var cmd = conn.CreateCommand();
 
-                    var result = cmd.ExecuteScalar();
-                    int totalTimeSeconds = Convert.ToInt32(result);
+                        // ✅ 실제 존재하는 StudySession 테이블에서 과목별 학습시간 조회
+                        cmd.CommandText = "SELECT COALESCE(SUM(DurationSeconds), 0) FROM StudySession WHERE SubjectName = @name";
+                        cmd.Parameters.AddWithValue("@name", subjectName);
 
-                    System.Diagnostics.Debug.WriteLine($"[DB] 과목 '{subjectName}' 총 학습시간: {totalTimeSeconds}초");
-                    return totalTimeSeconds;
+                        var result = cmd.ExecuteScalar();
+                        int totalTimeSeconds = Convert.ToInt32(result);
+
+                        System.Diagnostics.Debug.WriteLine($"[DB] 과목 '{subjectName}' 총 학습시간: {totalTimeSeconds}초");
+                        return totalTimeSeconds;
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] 과목 학습시간 조회 오류: {ex.Message}");
+                        return 0;
+                    }
                 }
             });
         }
@@ -1510,32 +1530,45 @@ namespace Notea.Modules.Common.Helpers
             {
                 lock (_lockObject)
                 {
-                    var result = new List<SubjectGroupViewModel>();
-
-                    using var conn = GetConnection();
-                    conn.Open();
-                    using var cmd = conn.CreateCommand();
-                    cmd.CommandText = "SELECT Id, Name, TotalStudyTimeSeconds FROM Subject ORDER BY TotalStudyTimeSeconds DESC";
-                    using var reader = cmd.ExecuteReader();
-
-                    while (reader.Read())
+                    try
                     {
-                        var subjectId = Convert.ToInt32(reader["Id"]);
-                        var subjectName = reader["Name"].ToString();
-                        var totalStudyTimeSeconds = Convert.ToInt32(reader["TotalStudyTimeSeconds"]);
+                        var result = new List<SubjectGroupViewModel>();
 
-                        var subjectVM = new SubjectGroupViewModel
+                        using var conn = GetConnection();
+                        conn.Open();
+
+                        // ✅ 실제 존재하는 subject 테이블 사용
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = "SELECT subJectId, title FROM subject ORDER BY title";
+                        using var reader = cmd.ExecuteReader();
+
+                        while (reader.Read())
                         {
-                            SubjectId = subjectId,
-                            SubjectName = subjectName,
-                            TotalStudyTimeSeconds = totalStudyTimeSeconds,
-                            TopicGroups = new ObservableCollection<TopicGroupViewModel>()
-                        };
+                            var subjectId = Convert.ToInt32(reader["subJectId"]);
+                            var subjectName = reader["title"].ToString();
 
-                        result.Add(subjectVM);
+                            // ✅ StudySession에서 해당 과목의 학습시간 계산
+                            var totalTime = GetSubjectTotalStudyTimeSeconds(subjectName);
+
+                            var subjectVM = new SubjectGroupViewModel
+                            {
+                                SubjectId = subjectId,
+                                SubjectName = subjectName,
+                                TotalStudyTimeSeconds = totalTime,
+                                TopicGroups = new ObservableCollection<TopicGroupViewModel>()
+                            };
+
+                            result.Add(subjectVM);
+                        }
+
+                        // 학습시간 순으로 정렬
+                        return result.OrderByDescending(s => s.TotalStudyTimeSeconds).ToList();
                     }
-
-                    return result;
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] LoadSubjectsWithStudyTime 오류: {ex.Message}");
+                        return new List<SubjectGroupViewModel>();
+                    }
                 }
             });
         }
