@@ -127,8 +127,30 @@ namespace Notea.Modules.Subjects.ViewModels
         // ✅ 메인 프로퍼티: 초단위 분류별 학습시간
         public int TotalStudyTimeSeconds
         {
-            get => TodayStudyTimeSeconds;
-            set => TodayStudyTimeSeconds = value;
+            get
+            {
+                if (CategoryId > 0)
+                {
+                    try
+                    {
+                        var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                        return dbHelper.GetCategoryStudyTimeSeconds(CategoryId);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[TopicGroup] 학습시간 조회 오류: {ex.Message}");
+                        return 0;
+                    }
+                }
+                return 0;
+            }
+            set
+            {
+                // setter는 UI 바인딩용으로만 사용, 실제 데이터는 데이터베이스에서 관리
+                OnPropertyChanged(nameof(TotalStudyTimeSeconds));
+                OnPropertyChanged(nameof(StudyTimeText));
+                OnPropertyChanged(nameof(ProgressRatio));
+            }
         }
 
         public void SetParentTodayStudyTime(int parentTodayTimeSeconds)
@@ -218,7 +240,8 @@ namespace Notea.Modules.Subjects.ViewModels
                 if (CategoryId > 0)
                 {
                     var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
-                    // CategoryId를 활용한 StudySession 저장
+
+                    // 1. StudySession에 기록 (기존과 동일)
                     dbHelper.SaveStudySession(
                         DateTime.Now.AddSeconds(-seconds),
                         DateTime.Now,
@@ -228,6 +251,10 @@ namespace Notea.Modules.Subjects.ViewModels
                         CategoryId
                     );
 
+                    // 2. ✅ 새로 추가: category 테이블의 TotalStudyTimeSeconds 업데이트
+                    dbHelper.UpdateCategoryStudyTimeSeconds(CategoryId, seconds);
+
+                    // 3. 실시간 표시 업데이트
                     UpdateRealTimeDisplay();
                     System.Diagnostics.Debug.WriteLine($"[TopicGroup] {GroupTitle} 학습시간 추가: {seconds}초 (CategoryId: {CategoryId})");
                 }
@@ -238,7 +265,7 @@ namespace Notea.Modules.Subjects.ViewModels
             }
         }
 
-        
+
 
         public void IncrementRealTimeStudy()
         {

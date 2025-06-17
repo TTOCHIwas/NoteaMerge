@@ -62,7 +62,7 @@ namespace Notea.Database
             using var cmd = connection.CreateCommand();
 
             cmd.CommandText = @"
-        -- ===== 통합된 Subject 테이블 (학습시간 포함) =====
+        -- ===== 통합된 Subject 테이블 =====
         CREATE TABLE IF NOT EXISTS Subject (
             subjectId INTEGER PRIMARY KEY AUTOINCREMENT,
             Name TEXT NOT NULL UNIQUE,
@@ -78,14 +78,16 @@ namespace Notea.Database
             lastModifiedDate DATETIME NOT NULL
         );
 
+        -- ===== 통합된 category 테이블 (필기 + 학습시간 추적) =====
         CREATE TABLE IF NOT EXISTS category (
             categoryId INTEGER PRIMARY KEY AUTOINCREMENT,
             displayOrder INTEGER DEFAULT 0,
             title VARCHAR NOT NULL,
-            subjectId INTEGER NOT NULL,                    -- Subject.subjectId 참조
+            subjectId INTEGER NOT NULL,
             timeId INTEGER NOT NULL,
             level INTEGER DEFAULT 1,
             parentCategoryId INTEGER DEFAULT NULL,
+            TotalStudyTimeSeconds INTEGER NOT NULL DEFAULT 0,  -- ✅ 추가: 학습시간 추적
             FOREIGN KEY (subjectId) REFERENCES Subject(subjectId),
             FOREIGN KEY (timeId) REFERENCES time(timeId)
         );
@@ -94,7 +96,7 @@ namespace Notea.Database
             textId INTEGER PRIMARY KEY AUTOINCREMENT,
             content TEXT NOT NULL,
             categoryId INTEGER NOT NULL,
-            subjectId INTEGER NOT NULL,                    -- Subject.subjectId 참조
+            subjectId INTEGER NOT NULL,
             displayOrder INTEGER DEFAULT 0,
             timeId INTEGER NOT NULL,
             level INTEGER DEFAULT 1,
@@ -125,20 +127,13 @@ namespace Notea.Database
             IsCompleted INTEGER NOT NULL DEFAULT 0
         );
 
-        CREATE TABLE IF NOT EXISTS TopicGroup (
-            Id INTEGER PRIMARY KEY AUTOINCREMENT,
-            SubjectId INTEGER NOT NULL,                    -- Subject.subjectId 참조
-            Name TEXT NOT NULL,
-            TotalStudyTimeSeconds INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (SubjectId) REFERENCES Subject(subjectId) ON DELETE CASCADE
-        );
-
+        -- ===== TopicItem 테이블 (categoryId 참조로 변경) =====
         CREATE TABLE IF NOT EXISTS TopicItem (
             Id INTEGER PRIMARY KEY AUTOINCREMENT,
-            TopicGroupId INTEGER NOT NULL,
+            categoryId INTEGER NOT NULL,                    -- ✅ 변경: TopicGroupId → categoryId
             Content TEXT NOT NULL,
             CreatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (TopicGroupId) REFERENCES TopicGroup(Id) ON DELETE CASCADE
+            FOREIGN KEY (categoryId) REFERENCES category(categoryId) ON DELETE CASCADE
         );
 
         -- ===== 학습 시간 추적 테이블들 =====
@@ -236,13 +231,110 @@ namespace Notea.Database
         CREATE INDEX IF NOT EXISTS idx_category_subject ON category(subjectId);
         CREATE INDEX IF NOT EXISTS idx_notecontent_category ON noteContent(categoryId);
         CREATE INDEX IF NOT EXISTS idx_notecontent_subject ON noteContent(subjectId);
+        CREATE INDEX IF NOT EXISTS idx_topicitem_category ON TopicItem(categoryId);
     ";
 
             cmd.ExecuteNonQuery();
-            Debug.WriteLine("[DB] 모든 테이블 생성 완료 - Subject 테이블 통합됨");
+            Debug.WriteLine("[DB] 모든 테이블 생성 완료 - TopicGroup이 category로 통합됨");
 
-            // ✅ 기존 subject 테이블이 있다면 데이터 마이그레이션 후 삭제
-            MigrateOldSubjectTable(connection);
+            // ✅ 테이블 통합 및 마이그레이션
+            MigrateTopicGroupToCategory(connection);
+        }
+
+        private static void MigrateTopicGroupToCategory(SQLiteConnection connection)
+        {
+            try
+            {
+                using var cmd = connection.CreateCommand();
+
+                // 1. category 테이블에 TotalStudyTimeSeconds 컬럼 추가 (없는 경우)
+                cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('category') WHERE name='TotalStudyTimeSeconds'";
+                var hasColumn = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+
+                if (!hasColumn)
+                {
+                    cmd.CommandText = "ALTER TABLE category ADD COLUMN TotalStudyTimeSeconds INTEGER DEFAULT 0";
+                    cmd.ExecuteNonQuery();
+                    Debug.WriteLine("[DB] category.TotalStudyTimeSeconds 컬럼 추가됨");
+                }
+
+                // 2. TopicGroup 테이블 존재 확인
+                cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='TopicGroup'";
+                var topicGroupExists = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+
+                if (topicGroupExists)
+                {
+                    // 3. TopicGroup 데이터를 category로 마이그레이션 (데이터가 있다면)
+                    cmd.CommandText = "SELECT COUNT(*) FROM TopicGroup";
+                    var topicGroupCount = Convert.ToInt32(cmd.ExecuteScalar());
+
+                    if (topicGroupCount > 0)
+                    {
+                        cmd.CommandText = @"
+                    INSERT INTO category (title, subjectId, timeId, TotalStudyTimeSeconds, displayOrder)
+                    SELECT Name, SubjectId, 1, TotalStudyTimeSeconds, Id
+                    FROM TopicGroup";
+                        var migratedRows = cmd.ExecuteNonQuery();
+                        Debug.WriteLine($"[DB] TopicGroup → category 마이그레이션: {migratedRows}개 행");
+
+                        // 4. TopicItem의 TopicGroupId를 categoryId로 업데이트
+                        cmd.CommandText = @"
+                    UPDATE TopicItem 
+                    SET TopicGroupId = (
+                        SELECT c.categoryId 
+                        FROM category c, TopicGroup tg 
+                        WHERE c.title = tg.Name AND tg.Id = TopicItem.TopicGroupId
+                    )
+                    WHERE EXISTS (
+                        SELECT 1 FROM TopicGroup tg WHERE tg.Id = TopicItem.TopicGroupId
+                    )";
+                        cmd.ExecuteNonQuery();
+                    }
+
+                    // 5. TopicGroup 테이블 삭제
+                    cmd.CommandText = "DROP TABLE TopicGroup";
+                    cmd.ExecuteNonQuery();
+                    Debug.WriteLine("[DB] TopicGroup 테이블 삭제 완료");
+                }
+
+                // 6. TopicItem 테이블 구조 변경 (컬럼명 변경)
+                cmd.CommandText = @"
+            CREATE TABLE IF NOT EXISTS TopicItem_new (
+                Id INTEGER PRIMARY KEY AUTOINCREMENT,
+                categoryId INTEGER NOT NULL,
+                Content TEXT NOT NULL,
+                CreatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (categoryId) REFERENCES category(categoryId) ON DELETE CASCADE
+            )";
+                cmd.ExecuteNonQuery();
+
+                // 기존 TopicItem 데이터가 있다면 복사
+                cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='TopicItem'";
+                var topicItemExists = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+
+                if (topicItemExists)
+                {
+                    cmd.CommandText = @"
+                INSERT INTO TopicItem_new (Id, categoryId, Content, CreatedAt)
+                SELECT Id, TopicGroupId, Content, CreatedAt FROM TopicItem";
+                    cmd.ExecuteNonQuery();
+
+                    cmd.CommandText = "DROP TABLE TopicItem";
+                    cmd.ExecuteNonQuery();
+
+                    cmd.CommandText = "ALTER TABLE TopicItem_new RENAME TO TopicItem";
+                    cmd.ExecuteNonQuery();
+
+                    Debug.WriteLine("[DB] TopicItem 테이블 구조 변경 완료: TopicGroupId → categoryId");
+                }
+
+                Debug.WriteLine("[DB] TopicGroup → category 통합 완료");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB WARNING] TopicGroup 통합 실패: {ex.Message}");
+                // 마이그레이션 실패해도 진행 (새 설치의 경우)
+            }
         }
 
         private static void MigrateOldSubjectTable(SQLiteConnection connection)
@@ -340,7 +432,33 @@ namespace Notea.Database
             UpdateDisplayOrderSchema(connection);
             UpdateHeadingLevelSchema(connection);
             UpdateImageSupportSchema(connection);
+            UpdateCategoryStudyTimeSchema(connection); 
             Debug.WriteLine("[DB] 모든 스키마 업데이트 완료");
+        }
+
+        private static void UpdateCategoryStudyTimeSchema(SQLiteConnection connection)
+        {
+            try
+            {
+                using var cmd = connection.CreateCommand();
+
+                // TotalStudyTimeSeconds 컬럼 확인 및 추가
+                cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('category') WHERE name='TotalStudyTimeSeconds'";
+                var studyTimeResult = cmd.ExecuteScalar();
+
+                if (Convert.ToInt32(studyTimeResult) == 0)
+                {
+                    cmd.CommandText = "ALTER TABLE category ADD COLUMN TotalStudyTimeSeconds INTEGER DEFAULT 0";
+                    cmd.ExecuteNonQuery();
+                    Debug.WriteLine("[DB] category.TotalStudyTimeSeconds 컬럼 추가됨");
+                }
+
+                Debug.WriteLine("[DB] category 학습시간 스키마 업데이트 완료");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] category 학습시간 스키마 업데이트 실패: {ex.Message}");
+            }
         }
 
         /// <summary>
