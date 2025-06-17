@@ -1,6 +1,8 @@
 ﻿using Microsoft.Data.Sqlite;
 using Notea.Helpers;
+using Notea.Modules.Common.ViewModels;
 using Notea.Modules.Subject.Models;
+using Notea.ViewModels;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
@@ -16,6 +18,8 @@ namespace Notea.Modules.Subject.ViewModels
 {
     public class NoteEditorViewModel : INotifyPropertyChanged
     {
+
+        private RightSidebarViewModel _rightSidebarViewModel;
 
         private readonly UndoRedoManager<NoteState> _undoRedoManager = new();
         public ObservableCollection<MarkdownLineViewModel> Lines { get; set; }
@@ -44,6 +48,7 @@ namespace Notea.Modules.Subject.ViewModels
             };
 
             InitializeIdleTimer();
+            InitializeTimerIntegration();
 
             // PropertyChanged 이벤트 등록
             Lines[0].PropertyChanged += OnLinePropertyChanged;
@@ -69,6 +74,7 @@ namespace Notea.Modules.Subject.ViewModels
         {
             Lines = new ObservableCollection<MarkdownLineViewModel>();
             InitializeIdleTimer();
+            InitializeTimerIntegration();
             int currentDisplayOrder = 1;
 
             Debug.WriteLine($"[LOAD] NoteEditorViewModel 생성 시작. 카테고리 수: {loadedNotes?.Count ?? 0}");
@@ -97,6 +103,67 @@ namespace Notea.Modules.Subject.ViewModels
             }
 
             Lines.CollectionChanged += Lines_CollectionChanged;
+        }
+
+        private void InitializeTimerIntegration()
+        {
+            try
+            {
+                _rightSidebarViewModel = FindRightSidebarViewModel();
+                if (_rightSidebarViewModel != null && CurrentCategoryId > 0)
+                {
+                    var subjectName = GetSubjectNameById(SubjectId);
+                    _rightSidebarViewModel.SetActiveCategory(CurrentCategoryId, subjectName);
+                    System.Diagnostics.Debug.WriteLine($"[NoteEditor] 활성 카테고리 설정: CategoryId={CurrentCategoryId}, Subject={subjectName}");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[NoteEditor] 타이머 연동 초기화 오류: {ex.Message}");
+            }
+        }
+
+        private RightSidebarViewModel FindRightSidebarViewModel()
+        {
+            try
+            {
+                // MainWindow에서 RightSidebarViewModel 찾기
+                if (Application.Current?.MainWindow?.DataContext is MainViewModel mainViewModel)
+                {
+                    var rightSidebarProp = mainViewModel.GetType().GetProperty("RightSidebarViewModel");
+                    if (rightSidebarProp != null)
+                    {
+                        return rightSidebarProp.GetValue(mainViewModel) as RightSidebarViewModel;
+                    }
+                }
+
+                // 다른 방법들...
+                return null;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        private string GetSubjectNameById(int subjectId)
+        {
+            try
+            {
+                using var conn = DatabaseHelper.Instance.GetConnection();
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT title FROM subject WHERE subJectId = @subjectId";
+                cmd.Parameters.AddWithValue("@subjectId", subjectId);
+
+                var result = cmd.ExecuteScalar();
+                return result?.ToString() ?? "";
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[NoteEditor] 과목명 조회 오류: {ex.Message}");
+                return "";
+            }
         }
 
         private void AddInitialEmptyLine()
@@ -216,9 +283,27 @@ namespace Notea.Modules.Subject.ViewModels
 
         public void UpdateActivity()
         {
-            Debug.WriteLine("마지막 액티비티 시간 바뀜");
-            _lastActivityTime = DateTime.Now;
+            try
+            {
+                _lastActivityTime = DateTime.Now;
+
+                // 타이머가 실행 중이고 활성 카테고리가 설정되어 있으면 학습 활동으로 간주
+                if (_rightSidebarViewModel?.IsTimerRunning == true && CurrentCategoryId > 0)
+                {
+                    // 현재 편집 중인 카테고리가 타이머의 활성 카테고리와 다르면 업데이트
+                    var subjectName = GetSubjectNameById(SubjectId);
+                    _rightSidebarViewModel.SetActiveCategory(CurrentCategoryId, subjectName);
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[NoteEditor] 활동 업데이트: CategoryId={CurrentCategoryId}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[NoteEditor] 활동 업데이트 오류: {ex.Message}");
+            }
         }
+
+
 
         private void CheckIdleAndSave(object sender, EventArgs e)
         {
@@ -401,6 +486,11 @@ namespace Notea.Modules.Subject.ViewModels
             {
                 if (e.PropertyName == nameof(MarkdownLineViewModel.Content))
                 {
+                    if (line != null && line.HasChanges)
+                    {
+                        // 내용 변경 시 활동 업데이트 (타이머에 현재 카테고리 알림)
+                        UpdateActivity();
+                    }
                     // 일반 텍스트가 제목으로 변경되는 경우
                     if (NoteRepository.IsCategoryHeading(line.Content) && !line.IsHeadingLine)
                     {
@@ -420,14 +510,28 @@ namespace Notea.Modules.Subject.ViewModels
 
         private void OnCategoryCreated(object sender, CategoryCreatedEventArgs e)
         {
-            if (sender is MarkdownLineViewModel line)
+            try
             {
-                CurrentCategoryId = e.NewCategoryId;
-                Debug.WriteLine($"[DEBUG] 새 카테고리 생성됨. CurrentCategoryId 업데이트: {CurrentCategoryId}");
+                if (sender is MarkdownLineViewModel line)
+                {
+                    CurrentCategoryId = e.NewCategoryId;
+                    Debug.WriteLine($"[DEBUG] 새 카테고리 생성됨. CurrentCategoryId 업데이트: {CurrentCategoryId}");
 
-                // 이 제목 이후의 모든 라인들의 CategoryId 업데이트
-                int headingIndex = Lines.IndexOf(line);
-                UpdateSubsequentLinesCategoryId(headingIndex + 1, CurrentCategoryId);
+                    if (_rightSidebarViewModel != null)
+                    {
+                        var subjectName = GetSubjectNameById(SubjectId);
+                        _rightSidebarViewModel.SetActiveCategory(CurrentCategoryId, subjectName);
+                        System.Diagnostics.Debug.WriteLine($"[NoteEditor] 카테고리 변경 알림: CategoryId={CurrentCategoryId}");
+                    }
+
+                    // 이 제목 이후의 모든 라인들의 CategoryId 업데이트
+                    int headingIndex = Lines.IndexOf(line);
+                    UpdateSubsequentLinesCategoryId(headingIndex + 1, CurrentCategoryId);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[NoteEditor] 카테고리 생성 처리 오류: {ex.Message}");
             }
         }
 
@@ -1162,8 +1266,23 @@ namespace Notea.Modules.Subject.ViewModels
         // View가 닫힐 때 호출
         public void OnViewClosing()
         {
-            _idleTimer?.Stop();
-            ForceFullSave(); // SaveAllChanges 대신 ForceFullSave 호출
+            try
+            {
+                _idleTimer?.Stop();
+
+                // 타이머 활성 카테고리 해제
+                if (_rightSidebarViewModel != null)
+                {
+                    _rightSidebarViewModel.ClearActiveCategory();
+                    System.Diagnostics.Debug.WriteLine("[NoteEditor] 활성 카테고리 해제");
+                }
+
+                ForceFullSave(); // SaveAllChanges 대신 ForceFullSave 호출
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[NoteEditor] View 닫기 처리 오류: {ex.Message}");
+            }
         }
 
         public event PropertyChangedEventHandler PropertyChanged;

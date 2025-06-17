@@ -35,6 +35,7 @@ namespace Notea.Modules.Common.Helpers
         private DatabaseHelper()
         {
             _dbPath = Notea.Database.DatabaseInitializer.GetDatabasePath();
+            AddCategoryIdToStudySession();
             Initialize();
         }
 
@@ -520,12 +521,9 @@ namespace Notea.Modules.Common.Helpers
             System.Diagnostics.Debug.WriteLine($"[DB] TopicGroup '{topicGroup.GroupTitle}'에 {topicGroup.Topics.Count}개 TopicItem 로드됨");
         }
 
-
-        // ✅ 먼저 5개 인수를 받는 메서드 정의
-        public void SaveStudySession(DateTime startTime, DateTime endTime, int durationSeconds,
-            string subjectName = null, string topicGroupName = null)
+        public int GetSubjectDailyTimeSeconds(DateTime date, string subjectName)
         {
-            ExecuteWithRetry(() =>
+            return ExecuteWithRetry(() =>
             {
                 lock (_lockObject)
                 {
@@ -535,34 +533,28 @@ namespace Notea.Modules.Common.Helpers
                         conn.Open();
                         using var cmd = conn.CreateCommand();
                         cmd.CommandText = @"
-                    INSERT INTO StudySession (StartTime, EndTime, DurationSeconds, Date, SubjectName, TopicGroupName)
-                    VALUES (@startTime, @endTime, @duration, @date, @subjectName, @topicGroupName)";
+                    SELECT COALESCE(SUM(DurationSeconds), 0) 
+                    FROM StudySession 
+                    WHERE Date = @date AND SubjectName = @subjectName";
 
-                        var dateString = startTime.ToString("yyyy-MM-dd");
-                        cmd.Parameters.AddWithValue("@startTime", startTime.ToString("yyyy-MM-dd HH:mm:ss"));
-                        cmd.Parameters.AddWithValue("@endTime", endTime.ToString("yyyy-MM-dd HH:mm:ss"));
-                        cmd.Parameters.AddWithValue("@duration", durationSeconds);
-                        cmd.Parameters.AddWithValue("@date", dateString);
-                        cmd.Parameters.AddWithValue("@subjectName", subjectName ?? (object)DBNull.Value);
-                        cmd.Parameters.AddWithValue("@topicGroupName", topicGroupName ?? (object)DBNull.Value);
+                        cmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
+                        cmd.Parameters.AddWithValue("@subjectName", subjectName);
 
-                        cmd.ExecuteNonQuery();
+                        var result = cmd.ExecuteScalar();
+                        var totalSeconds = Convert.ToInt32(result);
 
-                        var logMsg = $"[DB] 학습 세션 저장: {durationSeconds}초";
-                        if (!string.IsNullOrEmpty(subjectName))
-                            logMsg += $", 과목: {subjectName}";
-                        if (!string.IsNullOrEmpty(topicGroupName))
-                            logMsg += $", 분류: {topicGroupName}";
-
-                        System.Diagnostics.Debug.WriteLine(logMsg);
+                        System.Diagnostics.Debug.WriteLine($"[DB] 과목 {subjectName}의 {date:yyyy-MM-dd} 학습시간: {totalSeconds}초");
+                        return totalSeconds;
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[DB] 학습 세션 저장 오류: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[DB] 과목 학습시간 조회 오류: {ex.Message}");
+                        return 0;
                     }
                 }
             });
         }
+
 
         // ✅ 기존 3개 인수 메서드 (호환성 유지) - 5개 인수 메서드 호출
         public void SaveStudySession(DateTime startTime, DateTime endTime, int durationSeconds)
@@ -1859,8 +1851,174 @@ namespace Notea.Modules.Common.Helpers
             });
         }
 
+        public int GetCategoryDailyTimeSeconds(DateTime date, int categoryId)
+        {
+            return ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = @"
+                    SELECT COALESCE(SUM(DurationSeconds), 0) 
+                    FROM StudySession 
+                    WHERE Date = @date AND CategoryId = @categoryId";
 
+                        cmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
+                        cmd.Parameters.AddWithValue("@categoryId", categoryId);
 
+                        var result = cmd.ExecuteScalar();
+                        var totalSeconds = Convert.ToInt32(result);
+
+                        System.Diagnostics.Debug.WriteLine($"[DB] CategoryId {categoryId}의 {date:yyyy-MM-dd} 학습시간: {totalSeconds}초");
+                        return totalSeconds;
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] CategoryId 학습시간 조회 오류: {ex.Message}");
+                        return 0;
+                    }
+                }
+            });
+        }
+
+        /// <summary>
+        /// 분류명으로 오늘 총 학습시간 조회 (CategoryId가 없는 경우)
+        /// </summary>
+        public int GetTopicGroupDailyTimeSecondsByName(DateTime date, string subjectName, string topicGroupName)
+        {
+            return ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = @"
+                    SELECT COALESCE(SUM(DurationSeconds), 0) 
+                    FROM StudySession 
+                    WHERE Date = @date 
+                    AND SubjectName = @subjectName 
+                    AND TopicGroupName = @topicGroupName";
+
+                        cmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
+                        cmd.Parameters.AddWithValue("@subjectName", subjectName);
+                        cmd.Parameters.AddWithValue("@topicGroupName", topicGroupName);
+
+                        var result = cmd.ExecuteScalar();
+                        var totalSeconds = Convert.ToInt32(result);
+
+                        System.Diagnostics.Debug.WriteLine($"[DB] {subjectName}>{topicGroupName}의 {date:yyyy-MM-dd} 학습시간: {totalSeconds}초");
+                        return totalSeconds;
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] TopicGroup 학습시간 조회 오류: {ex.Message}");
+                        return 0;
+                    }
+                }
+            });
+        }
+
+        /// <summary>
+        /// StudySession 저장 (CategoryId 포함 버전)
+        /// </summary>
+        public void SaveStudySession(DateTime startTime, DateTime endTime, int durationSeconds,
+                           string subjectName = null, string topicGroupName = null, int? categoryId = null)
+        {
+            ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = @"
+                    INSERT INTO StudySession (StartTime, EndTime, Date, DurationSeconds, SubjectName, TopicGroupName, CategoryId) 
+                    VALUES (@startTime, @endTime, @date, @durationSeconds, @subjectName, @topicGroupName, @categoryId)";
+
+                        cmd.Parameters.AddWithValue("@startTime", startTime.ToString("yyyy-MM-dd HH:mm:ss"));
+                        cmd.Parameters.AddWithValue("@endTime", endTime.ToString("yyyy-MM-dd HH:mm:ss"));
+                        cmd.Parameters.AddWithValue("@date", startTime.ToString("yyyy-MM-dd"));
+                        cmd.Parameters.AddWithValue("@durationSeconds", durationSeconds);
+                        cmd.Parameters.AddWithValue("@subjectName", subjectName ?? (object)DBNull.Value);
+                        cmd.Parameters.AddWithValue("@topicGroupName", topicGroupName ?? (object)DBNull.Value);
+                        cmd.Parameters.AddWithValue("@categoryId", categoryId ?? (object)DBNull.Value);
+
+                        cmd.ExecuteNonQuery();
+
+                        var logMsg = $"[DB] 학습 세션 저장: {durationSeconds}초";
+                        if (!string.IsNullOrEmpty(subjectName))
+                            logMsg += $", 과목: {subjectName}";
+                        if (!string.IsNullOrEmpty(topicGroupName))
+                            logMsg += $", 분류: {topicGroupName}";
+                        if (categoryId.HasValue)
+                            logMsg += $", CategoryId: {categoryId.Value}";
+
+                        System.Diagnostics.Debug.WriteLine(logMsg);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] 학습 세션 저장 오류: {ex.Message}");
+                    }
+                }
+            });
+        }
+
+        /// <summary>
+        /// StudySession 테이블에 CategoryId 컬럼 추가 (마이그레이션)
+        /// </summary>
+        private void AddCategoryIdToStudySession()
+        {
+            ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+
+                        // CategoryId 컬럼이 이미 있는지 확인
+                        using var checkCmd = conn.CreateCommand();
+                        checkCmd.CommandText = "PRAGMA table_info(StudySession)";
+                        using var reader = checkCmd.ExecuteReader();
+
+                        bool hasCategoryId = false;
+                        while (reader.Read())
+                        {
+                            if (reader["name"].ToString() == "CategoryId")
+                            {
+                                hasCategoryId = true;
+                                break;
+                            }
+                        }
+                        reader.Close();
+
+                        // CategoryId 컬럼이 없으면 추가
+                        if (!hasCategoryId)
+                        {
+                            using var alterCmd = conn.CreateCommand();
+                            alterCmd.CommandText = "ALTER TABLE StudySession ADD COLUMN CategoryId INTEGER";
+                            alterCmd.ExecuteNonQuery();
+
+                            System.Diagnostics.Debug.WriteLine("[DB] StudySession 테이블에 CategoryId 컬럼 추가됨");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] CategoryId 컬럼 추가 오류: {ex.Message}");
+                    }
+                }
+            });
+        }
 
         // IDisposable 구현 (메모리 누수 방지)
         public void Dispose()

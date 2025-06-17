@@ -20,26 +20,13 @@ namespace Notea.Modules.Common.ViewModels
         private bool _isRunning;
         private DateTime _sessionStartTime;   // 세션 시작 시간
 
-        // ✅ 타이머 상태 이벤트 (추후 과목페이지/분류그룹에서 구독할 예정)
-        //public event Action<bool> TimerStatusChanged;
         public event Action ProgressUpdateRequested;
 
         // ✅ 현재 활성 과목/분류 정보 (추후 과목페이지에서 설정할 예정)
         private string _currentActiveSubject = string.Empty;
         private string _currentActiveTopicGroup = string.Empty;
-
         private int? _currentActiveCategoryId = null;
         private string _currentActiveSubjectName = string.Empty;
-
-        // ✅ 활성 과목/분류 설정 메소드 (추후 과목페이지에서 호출)
-        public void SetActiveSubject(string subjectName, string topicGroup = "")
-        {
-            _currentActiveSubject = subjectName;
-            _currentActiveTopicGroup = topicGroup;
-            System.Diagnostics.Debug.WriteLine($"[Timer] 활성 설정: 과목={subjectName}, 분류={topicGroup}");
-        }
-
-       
 
         // ✅ 활성 과목/분류 해제 (페이지 나갈 때)
         public void ClearActiveSubject()
@@ -47,14 +34,6 @@ namespace Notea.Modules.Common.ViewModels
             _currentActiveSubject = string.Empty;
             _currentActiveTopicGroup = string.Empty;
             System.Diagnostics.Debug.WriteLine($"[Timer] 활성 해제");
-        }
-
-        // 활성 카테고리 설정 메소드 (NoteEditorView에서 호출)
-        public void SetActiveCategory(int categoryId, string subjectName)
-        {
-            _currentActiveCategoryId = categoryId;
-            _currentActiveSubjectName = subjectName;
-            System.Diagnostics.Debug.WriteLine($"[Timer] 활성 카테고리 설정: CategoryId={categoryId}, Subject={subjectName}");
         }
 
         public void ClearActiveCategory()
@@ -76,7 +55,6 @@ namespace Notea.Modules.Common.ViewModels
         }
 
         public string TimerButtonText => _isRunning ? "일시정지" : "시작";
-        public bool IsTimerRunning => _isRunning;
 
         public ObservableCollection<Note> Memos { get; } = new();
 
@@ -130,6 +108,235 @@ namespace Notea.Modules.Common.ViewModels
             EndSession();
         }
 
+        private void InitializeTimer()
+        {
+            _timer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(1)
+            };
+            _timer.Tick += Timer_Tick;
+
+            LoadTodayTotalTime();
+
+            // 앱 종료 이벤트 구독
+            if (Application.Current != null)
+            {
+                Application.Current.Exit += Application_Exit;
+                Application.Current.SessionEnding += Application_SessionEnding;
+            }
+        }
+
+        private void Timer_Tick(object sender, EventArgs e)
+        {
+            if (_isRunning)
+            {
+                _currentSessionTime = _currentSessionTime.Add(TimeSpan.FromSeconds(1));
+
+                // 활성 과목/분류가 있으면 실시간으로 DB 저장 (매 10초마다)
+                if (_currentSessionTime.TotalSeconds % 10 == 0)
+                {
+                    SaveIncrementalSession();
+                }
+
+                // UI 업데이트
+                OnPropertyChanged(nameof(TotalStudyTimeDisplay));
+                OnPropertyChanged(nameof(CurrentSessionTimeDisplay));
+
+                // ✅ 진행률 업데이트 이벤트 발생 (매 30초마다)
+                if (_currentSessionTime.TotalSeconds % 30 == 0)
+                {
+                    ProgressUpdateRequested?.Invoke();
+                }
+            }
+        }
+
+        private void SaveIncrementalSession()
+        {
+            try
+            {
+                if (!string.IsNullOrEmpty(_currentActiveSubject))
+                {
+                    var endTime = DateTime.Now;
+                    var startTime = endTime.AddSeconds(-10); // 지난 10초
+
+                    // 활성 분류가 있으면 CategoryId와 함께 저장
+                    if (!string.IsNullOrEmpty(_currentActiveTopicGroup) && _currentActiveCategoryId.HasValue)
+                    {
+                        _db.SaveStudySession(
+                            startTime,
+                            endTime,
+                            10,
+                            _currentActiveSubject,
+                            _currentActiveTopicGroup,
+                            _currentActiveCategoryId.Value
+                        );
+
+                        System.Diagnostics.Debug.WriteLine($"[Timer] 증분 저장: {_currentActiveSubject}>{_currentActiveTopicGroup} (CategoryId: {_currentActiveCategoryId}) - 10초");
+                    }
+                    else
+                    {
+                        // 과목만 활성인 경우
+                        _db.SaveStudySession(startTime, endTime, 10, _currentActiveSubject);
+                        System.Diagnostics.Debug.WriteLine($"[Timer] 증분 저장: {_currentActiveSubject} - 10초");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Timer] 증분 세션 저장 오류: {ex.Message}");
+            }
+        }
+
+        public void SetActiveSubject(string subjectName, string topicGroup = "")
+        {
+            _currentActiveSubject = subjectName;
+            _currentActiveTopicGroup = topicGroup;
+
+            // TopicGroup이 설정된 경우 CategoryId 조회
+            if (!string.IsNullOrEmpty(topicGroup))
+            {
+                _currentActiveCategoryId = GetCategoryIdByTitle(topicGroup, subjectName);
+            }
+            else
+            {
+                _currentActiveCategoryId = null;
+            }
+
+            System.Diagnostics.Debug.WriteLine($"[Timer] 활성 설정: 과목={subjectName}, 분류={topicGroup}, CategoryId={_currentActiveCategoryId}");
+        }
+
+        private int? GetCategoryIdByTitle(string groupTitle, string subjectName)
+        {
+            try
+            {
+                using var conn = _db.GetConnection();
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = @"
+            SELECT c.categoryId 
+            FROM category c 
+            INNER JOIN subject s ON c.subJectId = s.subJectId 
+            WHERE c.title = @groupTitle AND s.title = @subjectName";
+
+                cmd.Parameters.AddWithValue("@groupTitle", groupTitle);
+                cmd.Parameters.AddWithValue("@subjectName", subjectName);
+
+                var result = cmd.ExecuteScalar();
+                return result != null ? Convert.ToInt32(result) : (int?)null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Timer] CategoryId 조회 오류: {ex.Message}");
+                return null;
+            }
+        }
+
+        public void SetActiveCategory(int categoryId, string subjectName)
+        {
+            _currentActiveCategoryId = categoryId;
+            _currentActiveSubjectName = subjectName;
+            _currentActiveSubject = subjectName; // 과목도 함께 설정
+
+            System.Diagnostics.Debug.WriteLine($"[Timer] 활성 카테고리 설정: CategoryId={categoryId}, Subject={subjectName}");
+        }
+
+
+        public void StartTimer()
+        {
+            if (!_isRunning)
+            {
+                _isRunning = true;
+                _sessionStartTime = DateTime.Now;
+                _timer.Start();
+
+                OnPropertyChanged(nameof(TimerButtonText));
+                OnPropertyChanged(nameof(IsTimerRunning));
+
+                System.Diagnostics.Debug.WriteLine($"[Timer] 시작 - 활성: {_currentActiveSubject}>{_currentActiveTopicGroup}");
+            }
+        }
+
+        // ✅ 수정: 타이머 중지
+        public void StopTimer()
+        {
+            if (_isRunning)
+            {
+                _timer.Stop();
+                _isRunning = false;
+
+                // 현재 세션 저장
+                SaveCurrentSession();
+
+                // 총 시간에 추가
+                _todayTotalTime = _todayTotalTime.Add(_currentSessionTime);
+                _currentSessionTime = TimeSpan.Zero;
+
+                OnPropertyChanged(nameof(TimerButtonText));
+                OnPropertyChanged(nameof(IsTimerRunning));
+                OnPropertyChanged(nameof(TotalStudyTimeDisplay));
+                OnPropertyChanged(nameof(CurrentSessionTimeDisplay));
+
+                // ✅ 진행률 업데이트 이벤트 발생
+                ProgressUpdateRequested?.Invoke();
+
+                System.Diagnostics.Debug.WriteLine("[Timer] 중지 및 세션 저장 완료");
+            }
+        }
+
+        private void SaveCurrentSession()
+        {
+            try
+            {
+                if (_currentSessionTime.TotalSeconds >= 1)
+                {
+                    var endTime = DateTime.Now;
+                    var startTime = _sessionStartTime;
+                    var totalSeconds = (int)_currentSessionTime.TotalSeconds;
+
+                    // 활성 분류가 있으면 CategoryId와 함께 저장
+                    if (!string.IsNullOrEmpty(_currentActiveSubject))
+                    {
+                        if (!string.IsNullOrEmpty(_currentActiveTopicGroup) && _currentActiveCategoryId.HasValue)
+                        {
+                            _db.SaveStudySession(
+                                startTime,
+                                endTime,
+                                totalSeconds,
+                                _currentActiveSubject,
+                                _currentActiveTopicGroup,
+                                _currentActiveCategoryId.Value
+                            );
+
+                            System.Diagnostics.Debug.WriteLine($"[Timer] 세션 저장: {_currentActiveSubject}>{_currentActiveTopicGroup} (CategoryId: {_currentActiveCategoryId}) - {totalSeconds}초");
+                        }
+                        else
+                        {
+                            _db.SaveStudySession(startTime, endTime, totalSeconds, _currentActiveSubject);
+                            System.Diagnostics.Debug.WriteLine($"[Timer] 세션 저장: {_currentActiveSubject} - {totalSeconds}초");
+                        }
+                    }
+                    else
+                    {
+                        // 활성 과목이 없으면 일반 세션으로 저장
+                        _db.SaveStudySession(startTime, endTime, totalSeconds);
+                        System.Diagnostics.Debug.WriteLine($"[Timer] 일반 세션 저장: {totalSeconds}초");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Timer] 현재 세션 저장 오류: {ex.Message}");
+            }
+        }
+
+        public string CurrentSessionTimeDisplay
+        {
+            get => _currentSessionTime.ToString(@"hh\:mm\:ss");
+        }
+
+        // ✅ 타이머 실행 상태
+        public bool IsTimerRunning => _isRunning;
+
         // ✅ 매초 실행되는 타이머 이벤트 - 과목/분류 시간도 함께 증가
         private void OnTimerTick(object sender, EventArgs e)
         {
@@ -159,6 +366,7 @@ namespace Notea.Modules.Common.ViewModels
             if (_currentSessionTime.TotalSeconds % 10 == 0)
             {
                 ProgressUpdateRequested?.Invoke();
+                StatisticsUpdateRequested?.Invoke(); // 전체 통계 새로고침 이벤트
             }
         }
 
@@ -230,22 +438,6 @@ namespace Notea.Modules.Common.ViewModels
 
             // ✅ 타이머 상태 변경 이벤트 발생
             ProgressUpdateRequested?.Invoke();
-        }
-
-        // 현재 세션을 DB에 저장
-        private void SaveCurrentSession()
-        {
-            try
-            {
-                var endTime = DateTime.Now;
-                _db.SaveStudySession(_sessionStartTime, endTime, (int)_currentSessionTime.TotalSeconds);
-
-                System.Diagnostics.Debug.WriteLine($"[Timer] 세션 저장됨: {_currentSessionTime.ToString(@"hh\:mm\:ss")}");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[Timer] 세션 저장 오류: {ex.Message}");
-            }
         }
 
         // 세션을 완전히 종료하고 저장하는 메소드

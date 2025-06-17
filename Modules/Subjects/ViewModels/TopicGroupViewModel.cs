@@ -3,6 +3,7 @@ using System.Windows.Input;
 using Notea.Modules.Subjects.Models;
 using Notea.ViewModels;
 using Notea.Modules.Subjects.Models;
+using Notea.Modules.Common.ViewModels;
 
 namespace Notea.Modules.Subjects.ViewModels
 {
@@ -19,7 +20,6 @@ namespace Notea.Modules.Subjects.ViewModels
             set => SetProperty(ref _isExpanded, value);
         }
 
-        // ✅ 체크 상태 - DB 저장 기능 포함
         private bool _isCompleted = false;
         public bool IsCompleted
         {
@@ -35,7 +35,7 @@ namespace Notea.Modules.Subjects.ViewModels
 
         public ICommand ToggleCommand { get; }
 
-        // 실시간 진행률 속성 (TopicGroupViewModel.cs에 추가)
+        // 실시간 진행률 속성
         private double _realTimeProgressPercentage = 0.0;
         public double RealTimeProgressPercentage
         {
@@ -50,18 +50,18 @@ namespace Notea.Modules.Subjects.ViewModels
             get => _realTimeStudyTimeDisplay;
             set => SetProperty(ref _realTimeStudyTimeDisplay, value);
         }
-        /// <summary>
-        /// 분류별 진행률 퍼센트 텍스트 (예: "8%")
-        /// </summary>
+
         public string ProgressRatioPercentText => $"{ProgressRatio:P1}";
 
-        // 카테고리 ID 속성 (진행률 계산용)
+        // ✅ 수정: 카테고리 ID 속성 완전 정의
         private int _categoryId = 0;
         public int CategoryId
         {
             get => _categoryId;
             set => SetProperty(ref _categoryId, value);
         }
+
+        private int _parentTodayStudyTimeSeconds = 0;
 
         public TopicGroupViewModel()
         {
@@ -80,8 +80,10 @@ namespace Notea.Modules.Subjects.ViewModels
                 {
                     var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
 
-                    // ✅ StudySession에서 직접 실제 측정 시간 조회
-                    var actualTime = dbHelper.GetTopicGroupActualDailyTimeSeconds(DateTime.Today, ParentSubjectName, GroupTitle);
+                    // ✅ StudySession에서 직접 실제 측정 시간 조회 (CategoryId 기반)
+                    var actualTime = CategoryId > 0
+                        ? dbHelper.GetCategoryDailyTimeSeconds(DateTime.Today, CategoryId)
+                        : dbHelper.GetTopicGroupDailyTimeSecondsByName(DateTime.Today, ParentSubjectName, GroupTitle);
 
                     System.Diagnostics.Debug.WriteLine($"[TopicGroup] {ParentSubjectName}>{GroupTitle} 실제 측정 시간: {actualTime}초");
                     return actualTime;
@@ -94,18 +96,19 @@ namespace Notea.Modules.Subjects.ViewModels
             }
             set
             {
-                // DailyTopicGroup 업데이트 (UI 표시용) - 필요시만
+                // DailyTopicGroup 업데이트 (UI 표시용)
                 try
                 {
                     var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
                     dbHelper.UpdateDailyTopicGroupCompletion(DateTime.Today, ParentSubjectName, GroupTitle, IsCompleted);
 
+                    // 모든 관련 속성들 새로고침
                     OnPropertyChanged(nameof(TodayStudyTimeSeconds));
                     OnPropertyChanged(nameof(ProgressRatio));
                     OnPropertyChanged(nameof(StudyTimeTooltip));
                     OnPropertyChanged(nameof(StudyTimeText));
-                    OnPropertyChanged(nameof(TotalStudyTime)); // 호환성
-                    OnPropertyChanged(nameof(TotalStudyTimeSeconds)); // 메인 프로퍼티
+                    OnPropertyChanged(nameof(TotalStudyTime));
+                    OnPropertyChanged(nameof(TotalStudyTimeSeconds));
                 }
                 catch (Exception ex)
                 {
@@ -128,14 +131,12 @@ namespace Notea.Modules.Subjects.ViewModels
             set => TodayStudyTimeSeconds = value;
         }
 
-        // ✅ 부모 과목의 오늘 학습시간 (진행률 계산용)
-        private int _parentTodayStudyTimeSeconds;
-
         public void SetParentTodayStudyTime(int parentTodayTimeSeconds)
         {
             _parentTodayStudyTimeSeconds = parentTodayTimeSeconds;
             OnPropertyChanged(nameof(ProgressRatio));
             OnPropertyChanged(nameof(StudyTimeTooltip));
+            OnPropertyChanged(nameof(ProgressRatioPercentText));
 
             System.Diagnostics.Debug.WriteLine($"[TopicGroup] {GroupTitle} 부모 오늘 시간 설정: {parentTodayTimeSeconds}초");
             System.Diagnostics.Debug.WriteLine($"[TopicGroup] {GroupTitle} 업데이트된 ProgressRatio: {ProgressRatio:P2}");
@@ -180,25 +181,53 @@ namespace Notea.Modules.Subjects.ViewModels
 
         public string StudyTimeTooltip
         {
-            //get
-            //{
-            //    var totalSeconds = TodayStudyTimeSeconds; // 실시간 조회
-            //    var hours = totalSeconds / 3600;
-            //    var minutes = (totalSeconds % 3600) / 60;
-            //    var seconds = totalSeconds % 60;
-            //    return $"{hours:D2}:{minutes:D2}:{seconds:D2} ({ProgressRatio:P1})";
-            //}
             get => $"{GroupTitle}: {ProgressRatioPercentText} - {RealTimeStudyTimeDisplay}";
+        }
+
+        public void UpdateRealTimeDisplay()
+        {
+            var totalSeconds = TodayStudyTimeSeconds;
+            var timeSpan = TimeSpan.FromSeconds(totalSeconds);
+            RealTimeStudyTimeDisplay = timeSpan.ToString(@"hh\:mm\:ss");
+
+            // 진행률도 함께 업데이트
+            RealTimeProgressPercentage = ProgressRatio * 100;
+
+            OnPropertyChanged(nameof(StudyTimeText));
+            OnPropertyChanged(nameof(StudyTimeTooltip));
+            OnPropertyChanged(nameof(ProgressRatioPercentText));
         }
 
         // ✅ 분류에서 노션처럼 공부할 때 호출될 메소드 (추후 과목페이지에서 사용)
         public void AddStudyTime(int seconds)
         {
-            // 추후 StudySession에 직접 저장하는 로직 구현
-            System.Diagnostics.Debug.WriteLine($"[TopicGroup] {GroupTitle} 학습시간 추가: {seconds}초");
+            try
+            {
+                if (CategoryId > 0)
+                {
+                    var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                    // CategoryId를 활용한 StudySession 저장
+                    dbHelper.SaveStudySession(
+                        DateTime.Now.AddSeconds(-seconds),
+                        DateTime.Now,
+                        seconds,
+                        ParentSubjectName,
+                        GroupTitle,
+                        CategoryId
+                    );
+
+                    UpdateRealTimeDisplay();
+                    System.Diagnostics.Debug.WriteLine($"[TopicGroup] {GroupTitle} 학습시간 추가: {seconds}초 (CategoryId: {CategoryId})");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[TopicGroup] 학습시간 추가 오류: {ex.Message}");
+            }
         }
 
-        // ✅ 타이머 기반 실시간 시간 증가 (분류에서 활동시 매초 호출될 예정)
+        
+
         public void IncrementRealTimeStudy()
         {
             AddStudyTime(1); // 1초씩 증가
@@ -212,11 +241,11 @@ namespace Notea.Modules.Subjects.ViewModels
                 if (!string.IsNullOrEmpty(ParentSubjectName) && !string.IsNullOrEmpty(GroupTitle))
                 {
                     var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
-                    dbHelper.UpdateDailyTopicGroupCompletion(System.DateTime.Today, ParentSubjectName, GroupTitle, IsCompleted);
+                    dbHelper.UpdateDailyTopicGroupCompletion(DateTime.Today, ParentSubjectName, GroupTitle, IsCompleted);
                     System.Diagnostics.Debug.WriteLine($"[TopicGroup] 체크 상태 저장: {GroupTitle} = {IsCompleted}");
                 }
             }
-            catch (System.Exception ex)
+            catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[TopicGroup] 체크 상태 저장 오류: {ex.Message}");
             }

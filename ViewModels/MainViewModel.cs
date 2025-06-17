@@ -3,8 +3,10 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Notea.Modules.Common.ViewModels;
 using Notea.Modules.Daily.ViewModels;
 using Notea.Modules.Daily.Views;
@@ -16,6 +18,9 @@ namespace Notea.ViewModels
     public class MainViewModel : INotifyPropertyChanged
     {
         public DateTime AppStartDate { get; } = DateTime.Now.Date;
+
+        private RightSidebarViewModel _rightSidebarViewModel;
+        private bool _progressUpdateSubscribed = false;
 
         // ViewModel들 (한 번만 생성)
         private readonly DailyHeaderViewModel _dailyHeaderVM;
@@ -250,17 +255,8 @@ namespace Notea.ViewModels
                 // TopicGroups의 CategoryId 설정
                 SetTopicGroupCategoryIds();
 
-                // RightSidebarViewModel 찾기 및 이벤트 구독
-                // MainWindow 로드 후에 구독하도록 설정
-                if (Application.Current.MainWindow != null)
-                {
-                    Application.Current.MainWindow.Loaded += (s, e) => SubscribeToTimerEvents();
-                }
-                else
-                {
-                    // MainWindow가 아직 없으면 나중에 구독
-                    Application.Current.Activated += (s, e) => SubscribeToTimerEvents();
-                }
+                // RightSidebarViewModel 구독 시도
+                SubscribeToTimerEvents();
 
                 System.Diagnostics.Debug.WriteLine("[MainViewModel] 진행률 업데이트 시스템 설정 완료");
             }
@@ -374,25 +370,97 @@ namespace Notea.ViewModels
         {
             try
             {
-                var rightSidebar = FindRightSidebarControl();
-                if (rightSidebar?.DataContext is RightSidebarViewModel timerVM)
-                {
-                    // 진행률 업데이트 이벤트 구독
-                    timerVM.ProgressUpdateRequested -= UpdateAllProgress; // 중복 구독 방지
-                    timerVM.ProgressUpdateRequested += UpdateAllProgress;
+                if (_progressUpdateSubscribed) return;
 
+                // RightSidebarViewModel 찾기 - 여러 방법 시도
+                _rightSidebarViewModel = FindRightSidebarViewModel();
+
+                if (_rightSidebarViewModel != null)
+                {
+                    _rightSidebarViewModel.ProgressUpdateRequested += OnProgressUpdateRequested;
+                    _progressUpdateSubscribed = true;
                     System.Diagnostics.Debug.WriteLine("[MainViewModel] 타이머 이벤트 구독 완료");
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine("[MainViewModel] RightSidebarViewModel을 찾을 수 없음");
+                    // RightSidebarViewModel을 찾지 못한 경우 지연 구독
+                    System.Diagnostics.Debug.WriteLine("[MainViewModel] RightSidebarViewModel 찾기 실패 - 지연 구독 설정");
+                    SetupDelayedSubscription();
                 }
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[MainViewModel Error] 타이머 이벤트 구독 실패: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 타이머 이벤트 구독 오류: {ex.Message}");
             }
         }
+
+        private void OnProgressUpdateRequested()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 진행률 업데이트 요청됨");
+
+                // UI 스레드에서 실행 보장
+                Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    UpdateAllProgressData();
+                }));
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 진행률 업데이트 오류: {ex.Message}");
+            }
+        }
+
+        private void UpdateAllProgressData()
+        {
+            try
+            {
+                var today = DateTime.Today;
+                int totalTodaySeconds = 0;
+
+                // 1. 모든 과목의 오늘 학습시간 업데이트
+                foreach (var subject in SharedSubjectProgress)
+                {
+                    // 과목별 실제 측정 시간 조회
+                    var subjectSeconds = Notea.Modules.Common.Helpers.DatabaseHelper.Instance.GetSubjectDailyTimeSeconds(today, subject.SubjectName);
+                    subject.TodayStudyTimeSeconds = subjectSeconds;
+                    totalTodaySeconds += subjectSeconds;
+
+                    System.Diagnostics.Debug.WriteLine($"[Progress] 과목 '{subject.SubjectName}' 업데이트: {subjectSeconds}초");
+
+                    // 2. 각 과목의 TopicGroups 업데이트
+                    foreach (var topicGroup in subject.TopicGroups)
+                    {
+                        // 분류별 실제 측정 시간 조회
+                        var categorySeconds = topicGroup.CategoryId > 0
+                            ? Notea.Modules.Common.Helpers.DatabaseHelper.Instance.GetCategoryDailyTimeSeconds(today, topicGroup.CategoryId)
+                            : Notea.Modules.Common.Helpers.DatabaseHelper.Instance.GetTopicGroupDailyTimeSecondsByName(today, subject.SubjectName, topicGroup.GroupTitle);
+
+                        // TopicGroup 시간 업데이트
+                        topicGroup.SetParentTodayStudyTime(subjectSeconds);
+
+                        // 실시간 표시 업데이트
+                        topicGroup.UpdateRealTimeDisplay();
+
+                        System.Diagnostics.Debug.WriteLine($"[Progress] 분류 '{topicGroup.GroupTitle}' 업데이트: {categorySeconds}초, 진행률: {topicGroup.ProgressRatio:P1}");
+                    }
+                }
+
+                // 3. 전체 통계 업데이트
+                OnPropertyChanged(nameof(TotalStudyTimeDisplay));
+
+                System.Diagnostics.Debug.WriteLine($"[Progress] 전체 업데이트 완료 - 총 시간: {TimeSpan.FromSeconds(totalTodaySeconds):hh\\:mm\\:ss}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Progress Error] 전체 진행률 업데이트 실패: {ex.Message}");
+            }
+        }
+
+
+
+
 
         private Notea.Modules.Common.Views.RightSidebar FindRightSidebarControl()
         {
@@ -423,16 +491,111 @@ namespace Notea.ViewModels
         {
             try
             {
-                // 실제 구현은 현재 구조에 맞게 조정 필요
-                // 예시: MainWindow를 통해 RightSidebar 찾기
-                return null; // 실제 구현 필요
+                // 방법 1: Application.Current.MainWindow에서 찾기
+                if (Application.Current?.MainWindow?.DataContext is MainViewModel mainViewModel)
+                {
+                    // MainViewModel의 프로퍼티로 접근
+                    var rightSidebarProp = mainViewModel.GetType().GetProperty("RightSidebarViewModel");
+                    if (rightSidebarProp != null)
+                    {
+                        return rightSidebarProp.GetValue(mainViewModel) as RightSidebarViewModel;
+                    }
+                }
+
+                // 방법 2: MainWindow의 RightSidebar UserControl에서 찾기
+                if (Application.Current?.MainWindow is Window mainWindow)
+                {
+                    var rightSidebar = FindChild<UserControl>(mainWindow, "RightSidebar");
+                    if (rightSidebar?.DataContext is RightSidebarViewModel rsvm)
+                    {
+                        return rsvm;
+                    }
+                }
+
+                // 방법 3: 싱글톤 패턴이 있다면 활용
+                // 예: return RightSidebarViewModel.Instance;
+
+                return null;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[MainViewModel] RightSidebarViewModel 찾기 실패: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] RightSidebarViewModel 찾기 오류: {ex.Message}");
                 return null;
             }
         }
+
+        private T FindChild<T>(DependencyObject parent, string childName = null) where T : DependencyObject
+        {
+            if (parent == null) return null;
+
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+
+                if (child is T && (childName == null || (child as FrameworkElement)?.Name == childName))
+                {
+                    return (T)child;
+                }
+
+                var childOfChild = FindChild<T>(child, childName);
+                if (childOfChild != null)
+                    return childOfChild;
+            }
+
+            return null;
+        }
+
+
+        private void SetupDelayedSubscription()
+        {
+            // 타이머로 주기적으로 RightSidebarViewModel 찾기 시도
+            var retryTimer = new DispatcherTimer
+            {
+                Interval = TimeSpan.FromSeconds(2)
+            };
+
+            int retryCount = 0;
+            retryTimer.Tick += (s, e) =>
+            {
+                retryCount++;
+                if (retryCount > 10) // 최대 10회 시도
+                {
+                    retryTimer.Stop();
+                    System.Diagnostics.Debug.WriteLine("[MainViewModel] RightSidebarViewModel 구독 시도 포기");
+                    return;
+                }
+
+                _rightSidebarViewModel = FindRightSidebarViewModel();
+                if (_rightSidebarViewModel != null)
+                {
+                    _rightSidebarViewModel.ProgressUpdateRequested += OnProgressUpdateRequested;
+                    _progressUpdateSubscribed = true;
+                    retryTimer.Stop();
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] 지연 구독 성공 (시도 {retryCount}회)");
+                }
+            };
+
+            retryTimer.Start();
+        }
+
+        public void Cleanup()
+        {
+            try
+            {
+                if (_rightSidebarViewModel != null && _progressUpdateSubscribed)
+                {
+                    _rightSidebarViewModel.ProgressUpdateRequested -= OnProgressUpdateRequested;
+                    _progressUpdateSubscribed = false;
+                    System.Diagnostics.Debug.WriteLine("[MainViewModel] 진행률 업데이트 이벤트 구독 해제");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 정리 오류: {ex.Message}");
+            }
+        }
+
+
 
         // 🆕 저장된 Daily Subject 데이터 복원 메소드 (실제 측정 시간만)
         private void RestoreDailySubjects()
