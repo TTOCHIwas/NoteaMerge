@@ -34,6 +34,55 @@ namespace Notea.Modules.Subject.Models
             }
         }
 
+        public class SubjectData
+        {
+            public int SubjectId { get; set; }
+            public string SubjectName { get; set; }
+            public int TotalStudyTimeSeconds { get; set; }  // ✅ 추가
+            public DateTime CreatedDate { get; set; }
+            public DateTime LastModifiedDate { get; set; }
+        }
+
+        public static SubjectData GetSubjectById(int subjectId)
+        {
+            try
+            {
+                // ✅ Subject 테이블 사용
+                string query = @"
+            SELECT subjectId, Name, TotalStudyTimeSeconds, createdDate, lastModifiedDate 
+            FROM Subject 
+            WHERE subjectId = @subjectId";
+
+                using (var connection = new SQLiteConnection(GetConnectionString()))
+                {
+                    connection.Open();
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = query;
+                    cmd.Parameters.AddWithValue("@subjectId", subjectId);
+
+                    using var reader = cmd.ExecuteReader();
+                    if (reader.Read())
+                    {
+                        return new SubjectData
+                        {
+                            SubjectId = reader.GetInt32("subjectId"),
+                            SubjectName = reader.GetString("Name"),              // ✅ Name 컬럼 사용
+                            TotalStudyTimeSeconds = reader.GetInt32("TotalStudyTimeSeconds"),
+                            CreatedDate = DateTime.Parse(reader.GetString("createdDate")),
+                            LastModifiedDate = DateTime.Parse(reader.GetString("lastModifiedDate"))
+                        };
+                    }
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[NoteRepository] GetSubjectById 오류: {ex.Message}");
+                return null;
+            }
+        }
+
         public static Transaction BeginTransaction()
         {
             var conn = new SQLiteConnection(GetConnectionString());
@@ -162,11 +211,11 @@ namespace Notea.Modules.Subject.Models
 
             try
             {
-                // 카테고리 로드 (기존과 동일)
+                // ✅ 모든 카테고리 로드 (subjectId 외래키 사용)
                 string categoryQuery = $@"
-            SELECT categoryId, title, displayOrder, level
+            SELECT categoryId, title, displayOrder, level, parentCategoryId
             FROM category 
-            WHERE subJectId = {subjectId}
+            WHERE subjectId = {subjectId}
             ORDER BY displayOrder";
 
                 DataTable categoryTable = DatabaseHelper.ExecuteSelect(categoryQuery);
@@ -183,13 +232,13 @@ namespace Notea.Modules.Subject.Models
                     categoryMap[category.CategoryId] = category;
                 }
 
-                // 텍스트 로드 - contentType과 imageUrl 포함
+                // ✅ 텍스트 로드 (subjectId 외래키 사용)
                 string textQuery = $@"
             SELECT textId, content, categoryId, displayOrder, 
                    COALESCE(contentType, 'text') as contentType,
                    imageUrl
             FROM noteContent 
-            WHERE subJectId = {subjectId}
+            WHERE subjectId = {subjectId}
             ORDER BY displayOrder";
 
                 DataTable textTable = DatabaseHelper.ExecuteSelect(textQuery);
@@ -212,14 +261,14 @@ namespace Notea.Modules.Subject.Models
                     }
                 }
 
-                Debug.WriteLine($"[DB] LoadNotesBySubject 완료. 카테고리 수: {result.Count}");
+                Debug.WriteLine($"[DB] LoadNotesBySubject 완료. SubjectId: {subjectId}, 카테고리 수: {result.Count}");
+                return result;
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DB ERROR] LoadNotesBySubject 실패: {ex.Message}");
+                return result;
             }
-
-            return result;
         }
 
         public static void RecalculateDisplayOrders(int subjectId)
@@ -1014,22 +1063,144 @@ namespace Notea.Modules.Subject.Models
             return null;
         }
 
+        public static int GetSubjectIdByName(string subjectName)
+        {
+            try
+            {
+                string query = "SELECT subjectId FROM Subject WHERE Name = @name";
+
+                using (var connection = new SQLiteConnection(GetConnectionString()))
+                {
+                    connection.Open();
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = query;
+                    cmd.Parameters.AddWithValue("@name", subjectName);
+
+                    var result = cmd.ExecuteScalar();
+                    return result != null ? Convert.ToInt32(result) : 0;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[NoteRepository] GetSubjectIdByName 오류: {ex.Message}");
+                return 0;
+            }
+        }
+
+        // ✅ 새로 추가: Subject 테이블에서 과목명 조회
+        public static string GetSubjectNameById(int subjectId)
+        {
+            try
+            {
+                string query = "SELECT Name FROM Subject WHERE subjectId = @subjectId";
+
+                using (var connection = new SQLiteConnection(GetConnectionString()))
+                {
+                    connection.Open();
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = query;
+                    cmd.Parameters.AddWithValue("@subjectId", subjectId);
+
+                    var result = cmd.ExecuteScalar();
+                    return result?.ToString() ?? "";
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[NoteRepository] GetSubjectNameById 오류: {ex.Message}");
+                return "";
+            }
+        }
+
+        public static int CreateCategory(int subjectId, string title, int level = 1, int? parentCategoryId = null)
+        {
+            try
+            {
+                // ✅ Subject 테이블 존재 확인
+                if (GetSubjectNameById(subjectId) == "")
+                {
+                    Debug.WriteLine($"[DB ERROR] SubjectId {subjectId}가 Subject 테이블에 없음");
+                    return 0;
+                }
+
+                // time 레코드 생성
+                string timeQuery = @"
+            INSERT INTO time (createdDate, lastModifiedDate) 
+            VALUES (datetime('now'), datetime('now')); 
+            SELECT last_insert_rowid();";
+                var timeResult = DatabaseHelper.ExecuteSelect(timeQuery);
+                int timeId = timeResult.Rows.Count > 0 ? Convert.ToInt32(timeResult.Rows[0]["last_insert_rowid()"]) : 1;
+
+                // 카테고리 생성 (Subject의 subjectId 참조)
+                string insertQuery = @"
+            INSERT INTO category (title, subjectId, timeId, level, parentCategoryId, displayOrder) 
+            VALUES (@title, @subjectId, @timeId, @level, @parentCategoryId, 
+                    (SELECT COALESCE(MAX(displayOrder), 0) + 1 FROM category WHERE subjectId = @subjectId)); 
+            SELECT last_insert_rowid();";
+
+                using (var connection = new SQLiteConnection(GetConnectionString()))
+                {
+                    connection.Open();
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = insertQuery;
+                    cmd.Parameters.AddWithValue("@title", title);
+                    cmd.Parameters.AddWithValue("@subjectId", subjectId);
+                    cmd.Parameters.AddWithValue("@timeId", timeId);
+                    cmd.Parameters.AddWithValue("@level", level);
+                    cmd.Parameters.AddWithValue("@parentCategoryId", parentCategoryId.HasValue ? (object)parentCategoryId.Value : DBNull.Value);
+
+                    var categoryId = Convert.ToInt32(cmd.ExecuteScalar());
+                    Debug.WriteLine($"[DB] 카테고리 생성됨 - ID: {categoryId}, SubjectId: {subjectId}, Title: {title}");
+                    return categoryId;
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] CreateCategory 실패: {ex.Message}");
+                return 0;
+            }
+        }
+
+
         public static void EnsureDefaultCategory(int subjectId)
         {
             try
             {
+                // ✅ Subject 테이블 존재 확인
+                string subjectExistsQuery = "SELECT COUNT(*) as count FROM Subject WHERE subjectId = @subjectId";
+                var subjectResult = DatabaseHelper.ExecuteSelect(subjectExistsQuery.Replace("@subjectId", subjectId.ToString()));
+
+                if (subjectResult.Rows.Count == 0 || Convert.ToInt32(subjectResult.Rows[0]["count"]) == 0)
+                {
+                    Debug.WriteLine($"[DB WARNING] SubjectId {subjectId}가 Subject 테이블에 없음");
+                    return;
+                }
+
                 // 기본 카테고리가 있는지 확인
-                string checkQuery = $"SELECT COUNT(*) as count FROM category WHERE categoryId = 1 AND subJectId = {subjectId}";
+                string checkQuery = $"SELECT COUNT(*) as count FROM category WHERE categoryId = 1 AND subjectId = {subjectId}";
                 var result = DatabaseHelper.ExecuteSelect(checkQuery);
 
                 if (result.Rows.Count > 0 && Convert.ToInt32(result.Rows[0]["count"]) == 0)
                 {
-                    // 기본 카테고리 생성
+                    // ✅ time 테이블에 기본 시간 레코드 생성
+                    string timeQuery = @"
+                INSERT INTO time (createdDate, lastModifiedDate) 
+                VALUES (datetime('now'), datetime('now')); 
+                SELECT last_insert_rowid();";
+                    var timeResult = DatabaseHelper.ExecuteSelect(timeQuery);
+                    int timeId = 1; // 기본값
+
+                    if (timeResult.Rows.Count > 0)
+                    {
+                        timeId = Convert.ToInt32(timeResult.Rows[0]["last_insert_rowid()"]);
+                    }
+
+                    // 기본 카테고리 생성 (Subject 테이블의 subjectId 참조)
                     string insertQuery = $@"
-                INSERT INTO category (categoryId, title, subJectId, timeId, displayOrder, level) 
-                VALUES (1, ' ', {subjectId}, 1, 0, 1)";
+                INSERT INTO category (categoryId, title, subjectId, timeId, displayOrder, level) 
+                VALUES (1, ' ', {subjectId}, {timeId}, 0, 1)";
                     DatabaseHelper.ExecuteNonQuery(insertQuery);
-                    Debug.WriteLine("[DB] 기본 카테고리 생성됨");
+                    Debug.WriteLine($"[DB] 기본 카테고리 생성됨 - SubjectId: {subjectId}");
                 }
             }
             catch (Exception ex)

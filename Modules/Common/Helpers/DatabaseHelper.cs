@@ -420,34 +420,31 @@ namespace Notea.Modules.Common.Helpers
         //}
 
         // ✅ 수정: LoadSubjectsWithGroups 메소드 (초단위 컬럼 사용)
-        public List<SubjectGroupViewModel> LoadSubjectsWithGroups()
+        public static List<SubjectGroupViewModel> LoadSubjectsWithGroups()
         {
-            return ExecuteWithRetry(() =>
+            var result = new List<SubjectGroupViewModel>();
+
+            try
             {
-                lock (_lockObject)
+                using (var connection = new SQLiteConnection(connectionString))
                 {
-                    var result = new List<SubjectGroupViewModel>();
+                    connection.Open();
 
-                    using var conn = GetConnection();
-                    conn.Open();
-
-                    var cmd = conn.CreateCommand();
-
-                    // ✅ 수정: 실제 테이블 구조에 맞게 쿼리 변경
-                    cmd.CommandText = "SELECT subJectId, title FROM subject ORDER BY title";
+                    // ✅ 수정: Subject 테이블 사용, 컬럼명 변경
+                    var cmd = connection.CreateCommand();
+                    cmd.CommandText = "SELECT subjectId, Name FROM Subject ORDER BY Name";
 
                     using var reader = cmd.ExecuteReader();
-
                     while (reader.Read())
                     {
-                        var subjectId = Convert.ToInt32(reader["subJectId"]);  // ✅ 수정
-                        var subjectName = reader["title"].ToString();          // ✅ 수정
+                        var subjectId = Convert.ToInt32(reader["subjectId"]);  // ✅ 수정
+                        var subjectName = reader["Name"].ToString();           // ✅ 수정
 
                         var subjectVM = new SubjectGroupViewModel
                         {
                             SubjectId = subjectId,
                             SubjectName = subjectName,
-                            TotalStudyTimeSeconds = 0, // ✅ 기본값으로 설정
+                            TotalStudyTimeSeconds = 0, // 기본값으로 설정
                             TopicGroups = new ObservableCollection<TopicGroupViewModel>()
                         };
 
@@ -457,21 +454,27 @@ namespace Notea.Modules.Common.Helpers
                     // TopicGroups는 별도 처리 (category 테이블에서 조회)
                     foreach (var subject in result)
                     {
-                        LoadTopicGroupsForSubject(conn, subject);
+                        LoadTopicGroupsForSubject(connection, subject);
                     }
-
-                    return result;
                 }
-            });
+
+                Console.WriteLine($"[DB] LoadSubjectsWithGroups 완료: {result.Count}개 과목 로드됨");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DB ERROR] LoadSubjectsWithGroups 실패: {ex.Message}");
+            }
+
+            return result;
         }
 
         // ✅ 수정: LoadTopicGroupsForSubject 메소드 (초단위 컬럼 사용)
-        private void LoadTopicGroupsForSubject(SQLiteConnection conn, SubjectGroupViewModel subject)
+        private static void LoadTopicGroupsForSubject(SQLiteConnection conn, SubjectGroupViewModel subject)
         {
             using var groupCmd = conn.CreateCommand();
 
-            // ✅ 수정: category 테이블에서 TopicGroup 정보 조회
-            groupCmd.CommandText = "SELECT categoryId, title FROM category WHERE subJectId = @subjectId ORDER BY title";
+            // ✅ 수정: category 테이블에서 TopicGroup 정보 조회 (subjectId 참조)
+            groupCmd.CommandText = "SELECT categoryId, title FROM category WHERE subjectId = @subjectId ORDER BY title";
             groupCmd.Parameters.AddWithValue("@subjectId", subject.SubjectId);
 
             using var groupReader = groupCmd.ExecuteReader();
@@ -482,9 +485,9 @@ namespace Notea.Modules.Common.Helpers
 
                 var topicGroup = new TopicGroupViewModel
                 {
-                    CategoryId = categoryId,                           // ✅ CategoryId 설정
-                    GroupTitle = categoryTitle,                        // ✅ 수정
-                    TotalStudyTimeSeconds = 0,                        // ✅ 기본값
+                    CategoryId = categoryId,
+                    GroupTitle = categoryTitle,
+                    TotalStudyTimeSeconds = 0,
                     ParentSubjectName = subject.SubjectName,
                     Topics = new ObservableCollection<Notea.Modules.Subjects.Models.TopicItem>()
                 };
@@ -492,8 +495,51 @@ namespace Notea.Modules.Common.Helpers
                 subject.TopicGroups.Add(topicGroup);
             }
 
-            System.Diagnostics.Debug.WriteLine($"[DB] Subject '{subject.SubjectName}'에 {subject.TopicGroups.Count}개 TopicGroup 로드됨");
+            Console.WriteLine($"[DB] Subject '{subject.SubjectName}'에 {subject.TopicGroups.Count}개 TopicGroup 로드됨");
         }
+
+        public static int AddSubjectToSubjectTable(string subjectName)
+        {
+            try
+            {
+                using (var connection = new SQLiteConnection(connectionString))
+                {
+                    connection.Open();
+
+                    // ✅ Subject 테이블에 과목 추가
+                    using var cmd = connection.CreateCommand();
+                    cmd.CommandText = @"
+                INSERT INTO Subject (Name, createdDate, lastModifiedDate) 
+                VALUES (@name, @createdDate, @lastModifiedDate); 
+                SELECT last_insert_rowid();";
+
+                    cmd.Parameters.AddWithValue("@name", subjectName);
+                    cmd.Parameters.AddWithValue("@createdDate", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    cmd.Parameters.AddWithValue("@lastModifiedDate", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                    var subjectId = Convert.ToInt32(cmd.ExecuteScalar());
+                    Console.WriteLine($"[DB] Subject 테이블에 과목 추가됨: {subjectName} (ID: {subjectId})");
+
+                    // ✅ time 테이블에도 기록 추가 (기존 시스템과의 호환성)
+                    using var timeCmd = connection.CreateCommand();
+                    timeCmd.CommandText = @"
+                INSERT INTO time (createdDate, lastModifiedDate) 
+                VALUES (@createdDate, @lastModifiedDate)";
+                    timeCmd.Parameters.AddWithValue("@createdDate", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    timeCmd.Parameters.AddWithValue("@lastModifiedDate", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    timeCmd.ExecuteNonQuery();
+
+                    return subjectId;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[DB ERROR] Subject 테이블 과목 추가 실패: {ex.Message}");
+                return 0;
+            }
+        }
+
+
 
         private void LoadTopicItemsForGroup(SQLiteConnection conn, TopicGroupViewModel topicGroup, int groupId)
         {

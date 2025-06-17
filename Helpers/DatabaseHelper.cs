@@ -98,9 +98,10 @@ namespace Notea.Helpers
         {
             try
             {
+                // ✅ Subject 테이블 확인으로 변경
                 string query = @"
             SELECT sql FROM sqlite_master 
-            WHERE type='table' AND name IN ('category', 'noteContent', 'Subject');";
+            WHERE type='table' AND name IN ('category', 'noteContent', 'Subject')";
 
                 var result = ExecuteSelect(query);
                 foreach (DataRow row in result.Rows)
@@ -108,18 +109,27 @@ namespace Notea.Helpers
                     Debug.WriteLine($"[DB SCHEMA] {row["sql"]}");
                 }
 
-                // noteContent 테이블의 데이터 확인
-                query = "SELECT COUNT(*) as count FROM noteContent";
+                // ✅ Subject 테이블의 데이터 확인
+                query = "SELECT COUNT(*) as count FROM Subject";
                 result = ExecuteSelect(query);
-                Debug.WriteLine($"[DB] noteContent 테이블의 행 수: {result.Rows[0]["count"]}");
+                Debug.WriteLine($"[DB] Subject 테이블의 행 수: {result.Rows[0]["count"]}");
+
+                // Subject 테이블 내용 확인
+                query = "SELECT * FROM Subject LIMIT 5";
+                result = ExecuteSelect(query);
+                Debug.WriteLine($"[DB] Subject 테이블 내용:");
+                foreach (DataRow row in result.Rows)
+                {
+                    Debug.WriteLine($"  SubjectId: {row["subjectId"]}, Name: {row["Name"]}, StudyTime: {row["TotalStudyTimeSeconds"]}초");
+                }
 
                 // category 테이블의 데이터 확인
-                query = "SELECT * FROM category";
+                query = "SELECT * FROM category LIMIT 5";
                 result = ExecuteSelect(query);
                 Debug.WriteLine($"[DB] category 테이블 내용:");
                 foreach (DataRow row in result.Rows)
                 {
-                    Debug.WriteLine($"  CategoryId: {row["categoryId"]}, Title: {row["title"]}, SubjectId: {row["subJectId"]}");
+                    Debug.WriteLine($"  CategoryId: {row["categoryId"]}, Title: {row["title"]}, SubjectId: {row["subjectId"]}");
                 }
             }
             catch (Exception ex)
@@ -134,12 +144,22 @@ namespace Notea.Helpers
             {
                 Debug.WriteLine("=== 데이터베이스 전체 내용 ===");
 
-                // 카테고리 출력
+                // ✅ Subject 정보 먼저 출력
+                string subjectQuery = "SELECT * FROM Subject WHERE subjectId = @subjectId";
+                var subjectResult = ExecuteSelect(subjectQuery.Replace("@subjectId", subjectId.ToString()));
+                Debug.WriteLine($"[Subject] SubjectId: {subjectId}");
+                if (subjectResult.Rows.Count > 0)
+                {
+                    var row = subjectResult.Rows[0];
+                    Debug.WriteLine($"  Name: {row["Name"]}, StudyTime: {row["TotalStudyTimeSeconds"]}초");
+                }
+
+                // 카테고리 출력 (subjectId 참조)
                 string categoryQuery = $@"
-            SELECT categoryId, title, diNotealayOrder, level, parentCategoryId
+            SELECT categoryId, title, displayOrder, level, parentCategoryId
             FROM category 
-            WHERE subJectId = {subjectId}
-            ORDER BY diNotealayOrder";
+            WHERE subjectId = {subjectId}
+            ORDER BY displayOrder";
 
                 var categoryResult = ExecuteSelect(categoryQuery);
                 Debug.WriteLine($"[카테고리] 총 {categoryResult.Rows.Count}개");
@@ -147,17 +167,17 @@ namespace Notea.Helpers
                 {
                     Debug.WriteLine($"  ID: {row["categoryId"]}, " +
                                   $"Title: '{row["title"]}', " +
-                                  $"Order: {row["diNotealayOrder"]}, " +
+                                  $"Order: {row["displayOrder"]}, " +
                                   $"Level: {row["level"]}, " +
                                   $"ParentId: {row["parentCategoryId"]}");
                 }
 
-                // 텍스트 내용 출력
+                // 텍스트 내용 출력 (subjectId 참조)
                 string textQuery = $@"
-            SELECT textId, content, categoryId, diNotealayOrder
+            SELECT textId, content, categoryId, displayOrder
             FROM noteContent 
-            WHERE subJectId = {subjectId}
-            ORDER BY diNotealayOrder";
+            WHERE subjectId = {subjectId}
+            ORDER BY displayOrder";
 
                 var textResult = ExecuteSelect(textQuery);
                 Debug.WriteLine($"\n[텍스트] 총 {textResult.Rows.Count}개");
@@ -165,24 +185,8 @@ namespace Notea.Helpers
                 {
                     Debug.WriteLine($"  ID: {row["textId"]}, " +
                                   $"CategoryId: {row["categoryId"]}, " +
-                                  $"Order: {row["diNotealayOrder"]}, " +
+                                  $"Order: {row["displayOrder"]}, " +
                                   $"Content: '{row["content"]?.ToString().Substring(0, Math.Min(50, row["content"]?.ToString().Length ?? 0))}'...");
-                }
-
-                // 카테고리별 텍스트 개수
-                string countQuery = $@"
-            SELECT c.categoryId, c.title, COUNT(n.textId) as textCount
-            FROM category c
-            LEFT JOIN noteContent n ON c.categoryId = n.categoryId
-            WHERE c.subJectId = {subjectId}
-            GROUP BY c.categoryId, c.title
-            ORDER BY c.diNotealayOrder";
-
-                var countResult = ExecuteSelect(countQuery);
-                Debug.WriteLine($"\n[카테고리별 텍스트 개수]");
-                foreach (DataRow row in countResult.Rows)
-                {
-                    Debug.WriteLine($"  카테고리 '{row["title"]}' (ID: {row["categoryId"]}): {row["textCount"]}개");
                 }
 
                 Debug.WriteLine("========================");
