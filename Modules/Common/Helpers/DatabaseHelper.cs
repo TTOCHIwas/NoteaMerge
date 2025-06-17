@@ -1036,13 +1036,20 @@ namespace Notea.Modules.Common.Helpers
                             }
                         }
 
-                        // 각 과목에 대해 TopicGroups 조회 (Topics 없이)
+                        // 각 과목에 대해 TopicGroups 조회 (CategoryId 포함)
                         foreach (var (subjectName, progress, studyTimeSeconds) in subjects)
                         {
                             var topicGroups = new List<TopicGroupData>();
 
                             using var groupCmd = conn.CreateCommand();
-                            groupCmd.CommandText = "SELECT GroupTitle, TotalStudyTimeSeconds, IsCompleted FROM DailyTopicGroup WHERE Date = @date AND SubjectName = @subjectName";
+                            groupCmd.CommandText = @"
+                        SELECT dtg.GroupTitle, dtg.TotalStudyTimeSeconds, dtg.IsCompleted,
+                               COALESCE(c.categoryId, 0) as CategoryId
+                        FROM DailyTopicGroup dtg
+                        LEFT JOIN category c ON c.title = dtg.GroupTitle 
+                                             AND c.subJectId = (SELECT subJectId FROM subject WHERE title = @subjectName)
+                        WHERE dtg.Date = @date AND dtg.SubjectName = @subjectName";
+
                             groupCmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
                             groupCmd.Parameters.AddWithValue("@subjectName", subjectName);
 
@@ -1052,21 +1059,22 @@ namespace Notea.Modules.Common.Helpers
                                 var groupTitle = groupReader["GroupTitle"].ToString();
                                 var totalStudyTimeSeconds = Convert.ToInt32(groupReader["TotalStudyTimeSeconds"]);
                                 var isCompleted = Convert.ToInt32(groupReader["IsCompleted"]) == 1;
+                                var categoryId = Convert.ToInt32(groupReader["CategoryId"]);
 
-                                // ✅ Topics 없이 TopicGroupData 생성
                                 topicGroups.Add(new TopicGroupData
                                 {
                                     GroupTitle = groupTitle,
                                     TotalStudyTimeSeconds = totalStudyTimeSeconds,
                                     IsCompleted = isCompleted,
-                                    Topics = new List<TopicItemData>() // ✅ 항상 빈 리스트
+                                    CategoryId = categoryId, // ✅ CategoryId 설정
+                                    Topics = new List<TopicItemData>()
                                 });
                             }
 
                             result.Add((subjectName, progress, studyTimeSeconds, topicGroups));
                         }
 
-                        System.Diagnostics.Debug.WriteLine($"[DB] {result.Count}개 DailySubject 로드됨 (TopicItem 제거됨)");
+                        System.Diagnostics.Debug.WriteLine($"[DB] {result.Count}개 DailySubject 로드됨 (CategoryId 포함)");
                     }
                     catch (Exception ex)
                     {
@@ -2269,7 +2277,8 @@ namespace Notea.Modules.Common.Helpers
         public string GroupTitle { get; set; } = string.Empty;
         public int TotalStudyTimeSeconds { get; set; }
         public bool IsCompleted { get; set; }
-        public List<TopicItemData> Topics { get; set; } = new(); // ✅ 호환성을 위해 유지하지만 항상 빈 리스트
+        public int CategoryId { get; set; } = 0; // ✅ 이 줄 추가
+        public List<TopicItemData> Topics { get; set; } = new();
     }
 
     public class TopicItemData
