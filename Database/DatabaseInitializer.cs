@@ -44,6 +44,7 @@ namespace Notea.Database
                 // 기존 데이터베이스 호환성을 위한 스키마 업데이트
                 UpdateAllSchemas(connection);
 
+
                 Debug.WriteLine($"[DB] 데이터베이스 초기화 완료: {DbPath}");
             }
             catch (Exception ex)

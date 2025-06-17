@@ -36,6 +36,7 @@ namespace Notea.Modules.Common.Helpers
         {
             _dbPath = Notea.Database.DatabaseInitializer.GetDatabasePath();
             AddCategoryIdToStudySession();
+            MigrateStudySessionTable();
             Initialize();
         }
 
@@ -1924,7 +1925,6 @@ namespace Notea.Modules.Common.Helpers
                 }
             });
         }
-
         /// <summary>
         /// StudySession 저장 (CategoryId 포함 버전)
         /// </summary>
@@ -1972,6 +1972,56 @@ namespace Notea.Modules.Common.Helpers
             });
         }
 
+        private void MigrateStudySessionTable()
+        {
+            ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+
+                        // 테이블 구조 확인
+                        using var checkCmd = conn.CreateCommand();
+                        checkCmd.CommandText = "PRAGMA table_info(StudySession)";
+                        using var reader = checkCmd.ExecuteReader();
+
+                        var columns = new List<string>();
+                        while (reader.Read())
+                        {
+                            columns.Add(reader["name"].ToString());
+                        }
+                        reader.Close();
+
+                        // 필요한 컬럼들 추가
+                        var requiredColumns = new Dictionary<string, string>
+                {
+                    { "CategoryId", "INTEGER" },
+                    { "SubjectName", "TEXT" },
+                    { "TopicGroupName", "TEXT" }
+                };
+
+                        foreach (var column in requiredColumns)
+                        {
+                            if (!columns.Contains(column.Key))
+                            {
+                                using var alterCmd = conn.CreateCommand();
+                                alterCmd.CommandText = $"ALTER TABLE StudySession ADD COLUMN {column.Key} {column.Value}";
+                                alterCmd.ExecuteNonQuery();
+
+                                System.Diagnostics.Debug.WriteLine($"[DB] StudySession 테이블에 {column.Key} 컬럼 추가됨");
+                            }
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] StudySession 테이블 마이그레이션 오류: {ex.Message}");
+                    }
+                }
+            });
+        }
         /// <summary>
         /// StudySession 테이블에 CategoryId 컬럼 추가 (마이그레이션)
         /// </summary>

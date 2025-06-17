@@ -186,18 +186,30 @@ namespace Notea.Modules.Subjects.ViewModels
 
         public void UpdateRealTimeDisplay()
         {
-            var totalSeconds = TodayStudyTimeSeconds;
-            var timeSpan = TimeSpan.FromSeconds(totalSeconds);
-            RealTimeStudyTimeDisplay = timeSpan.ToString(@"hh\:mm\:ss");
+            try
+            {
+                var totalSeconds = TodayStudyTimeSeconds;
+                var timeSpan = TimeSpan.FromSeconds(totalSeconds);
+                RealTimeStudyTimeDisplay = timeSpan.ToString(@"hh\:mm\:ss");
 
-            // 진행률도 함께 업데이트
-            RealTimeProgressPercentage = ProgressRatio * 100;
+                // 진행률도 함께 업데이트
+                RealTimeProgressPercentage = ProgressRatio * 100;
 
-            OnPropertyChanged(nameof(StudyTimeText));
-            OnPropertyChanged(nameof(StudyTimeTooltip));
-            OnPropertyChanged(nameof(ProgressRatioPercentText));
+                // UI 속성들 새로고침
+                OnPropertyChanged(nameof(StudyTimeText));
+                OnPropertyChanged(nameof(StudyTimeTooltip));
+                OnPropertyChanged(nameof(ProgressRatioPercentText));
+                OnPropertyChanged(nameof(ProgressRatio));
+                OnPropertyChanged(nameof(RealTimeStudyTimeDisplay));
+                OnPropertyChanged(nameof(RealTimeProgressPercentage));
+
+                System.Diagnostics.Debug.WriteLine($"[TopicGroup] {GroupTitle} 실시간 표시 업데이트: {RealTimeStudyTimeDisplay}, 진행률: {ProgressRatio:P1}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[TopicGroup] 실시간 표시 업데이트 오류: {ex.Message}");
+            }
         }
-
         // ✅ 분류에서 노션처럼 공부할 때 호출될 메소드 (추후 과목페이지에서 사용)
         public void AddStudyTime(int seconds)
         {

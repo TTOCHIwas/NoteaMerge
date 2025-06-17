@@ -9,6 +9,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.CompilerServices;
 using System.Transactions;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Threading;
@@ -150,7 +151,7 @@ namespace Notea.Modules.Subject.ViewModels
         {
             try
             {
-                using var conn = DatabaseHelper.Instance.GetConnection();
+                using var conn = Notea.Modules.Common.Helpers.DatabaseHelper.Instance.GetConnection();
                 conn.Open();
                 using var cmd = conn.CreateCommand();
                 cmd.CommandText = "SELECT title FROM subject WHERE subJectId = @subjectId";
