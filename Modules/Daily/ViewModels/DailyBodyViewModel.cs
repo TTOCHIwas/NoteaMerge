@@ -94,12 +94,19 @@ namespace Notea.Modules.Daily.ViewModels
         // 공유 데이터 설정 메소드 - 수정됨
         public void SetSharedSubjects(ObservableCollection<SubjectProgressViewModel> sharedSubjects)
         {
-            // 🆕 로딩 플래그 설정으로 이벤트 차단
+            // ✅ 더 강력한 이벤트 차단
             _isLoadingFromDatabase = true;
+            _isLoadingSubjects = true;
 
             try
             {
-                // 기존 데이터를 새로운 공유 컬렉션으로 이동
+                // 기존 이벤트 완전 해제
+                if (Subjects != null)
+                {
+                    Subjects.CollectionChanged -= Subjects_CollectionChanged;
+                }
+
+                // 기존 데이터 이동
                 if (Subjects != null && Subjects.Count > 0)
                 {
                     var existingData = Subjects.ToList();
@@ -107,15 +114,21 @@ namespace Notea.Modules.Daily.ViewModels
                     {
                         if (!sharedSubjects.Any(s => string.Equals(s.SubjectName, item.SubjectName, StringComparison.OrdinalIgnoreCase)))
                         {
+                            // ✅ 캐시된 값으로 추가 (DB 조회 방지)
+                            item.SetCachedStudyTime(item.TodayStudyTimeSeconds);
                             sharedSubjects.Add(item);
                         }
                     }
                 }
 
+                // 공유 컬렉션 설정
                 Subjects = sharedSubjects;
                 System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 공유 데이터로 전환됨: {Subjects.Count}개 항목");
 
-                // 🆕 공유 데이터로 전환한 후에만 한 번 로드
+                // 이벤트 다시 연결
+                Subjects.CollectionChanged += Subjects_CollectionChanged;
+
+                // ✅ 데이터 로드는 필요한 경우에만
                 if (!_hasLoadedOnce)
                 {
                     LoadDailySubjects(SelectedDate);
@@ -125,6 +138,7 @@ namespace Notea.Modules.Daily.ViewModels
             finally
             {
                 _isLoadingFromDatabase = false;
+                _isLoadingSubjects = false;
             }
         }
 
@@ -260,45 +274,19 @@ namespace Notea.Modules.Daily.ViewModels
 
         private void LoadDailySubjects(DateTime date)
         {
-            if (_isLoadingSubjects)
-            {
-                System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 이미 로딩 중이므로 스킵됨");
-                return;
-            }
-
+            if (_isLoadingSubjects) return;
             _isLoadingSubjects = true;
-            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] LoadDailySubjects 시작 - 날짜: {date:yyyy-MM-dd}");
 
             try
             {
-                // ⭐ 1단계: DB 중복 데이터 정리 (임시)
-                _db.CleanupDuplicateData(date);
-
-                // ⭐ 2단계: 모든 이벤트 차단
+                // ⭐ 1~6단계: 기존 로직 유지
                 Subjects.CollectionChanged -= Subjects_CollectionChanged;
 
-                // ✅ 3단계: 오늘 총 공부시간 계산 및 설정
-                int todayTotalSeconds = _db.GetTotalStudyTimeSeconds(date);
-                SubjectProgressViewModel.SetTodayTotalStudyTime(todayTotalSeconds);
-                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 오늘 총 공부시간 설정: {todayTotalSeconds}초");
-
-                // 4단계: 데이터 로드
-                var dailySubjectsWithGroups = _db.GetDailySubjectsWithTopicGroups(date);
-                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] DB에서 {dailySubjectsWithGroups.Count}개 DailySubject 로드됨");
-
-                // ⭐ 5단계: 기존 데이터 완전 초기화
-                foreach (var subject in Subjects.ToList())
-                {
-                    subject.TopicGroups.CollectionChanged -= null; // 모든 이벤트 해제
-                }
-                Subjects.Clear();
-
-                // 6단계: 새 데이터로 채우기 (실제 측정된 시간만)
                 var processedSubjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                var dailySubjectsWithGroups = _db.GetDailySubjectsWithTopicGroups(date);
 
                 foreach (var (subjectName, progress, studyTimeSeconds, topicGroupsData) in dailySubjectsWithGroups)
                 {
-                    // 중복 체크
                     if (processedSubjects.Contains(subjectName))
                     {
                         System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 중복 과목 스킵: {subjectName}");
@@ -306,47 +294,50 @@ namespace Notea.Modules.Daily.ViewModels
                     }
                     processedSubjects.Add(subjectName);
 
-                    // ✅ 새 SubjectProgressViewModel 생성 (실제 측정 시간만)
                     var newSubject = new SubjectProgressViewModel
                     {
                         SubjectName = subjectName,
-                        TodayStudyTimeSeconds = studyTimeSeconds // ✅ 실제 측정된 시간만
+                        TodayStudyTimeSeconds = studyTimeSeconds
                     };
 
-                    // TopicGroups 생성 (이벤트 없이)
+                    // ✅ TopicGroups 생성 (Topics 없이)
                     var restoredTopicGroups = new ObservableCollection<TopicGroupViewModel>();
                     foreach (var groupData in topicGroupsData)
                     {
                         var topicGroup = new TopicGroupViewModel
                         {
                             GroupTitle = groupData.GroupTitle,
-                            TodayStudyTimeSeconds = groupData.TotalStudyTimeSeconds, // ✅ 실제 측정된 시간
+                            TodayStudyTimeSeconds = groupData.TotalStudyTimeSeconds,
                             IsCompleted = groupData.IsCompleted,
                             ParentSubjectName = subjectName,
+                            // ✅ Topics 컬렉션은 빈 상태로 유지 (더 이상 생성하지 않음)
                             Topics = new ObservableCollection<Notea.Modules.Subjects.Models.TopicItem>()
                         };
 
                         topicGroup.SetParentTodayStudyTime(studyTimeSeconds);
 
-                        // Topics 추가
+                        // ✅ 완전 제거: Topics 추가 로직 삭제
+                        /*
+                        // 🗑️ 삭제된 코드: Topics 생성 부분
                         foreach (var topicData in groupData.Topics)
                         {
                             topicGroup.Topics.Add(new Notea.Modules.Subjects.Models.TopicItem
                             {
                                 Name = topicData.Name,
                                 Progress = topicData.Progress,
-                                StudyTimeSeconds = topicData.StudyTimeSeconds, // ✅ 실제 측정된 시간
+                                StudyTimeSeconds = topicData.StudyTimeSeconds,
                                 IsCompleted = topicData.IsCompleted,
                                 ParentTopicGroupName = groupData.GroupTitle,
                                 ParentSubjectName = subjectName
                             });
                         }
+                        */
 
                         restoredTopicGroups.Add(topicGroup);
                     }
 
-                    // ⭐ 완전히 새로운 방식: 직접 할당
-                    newSubject._isUpdatingFromDatabase = true; // 직접 플래그 설정
+                    // ⭐ 기존 로직 유지: TopicGroups 할당
+                    newSubject._isUpdatingFromDatabase = true;
                     try
                     {
                         foreach (var group in restoredTopicGroups)
@@ -362,7 +353,7 @@ namespace Notea.Modules.Daily.ViewModels
                     Subjects.Add(newSubject);
                 }
 
-                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 최종 과목 수: {Subjects.Count}개");
+                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 최종 과목 수: {Subjects.Count}개 (Topics 기능 제거됨)");
             }
             catch (Exception ex)
             {
@@ -370,7 +361,6 @@ namespace Notea.Modules.Daily.ViewModels
             }
             finally
             {
-                // ⭐ 7단계: 이벤트 재연결
                 Subjects.CollectionChanged += Subjects_CollectionChanged;
                 _isLoadingSubjects = false;
                 System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] LoadDailySubjects 완료");

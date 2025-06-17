@@ -7,6 +7,11 @@ namespace Notea.Modules.Daily.ViewModels
 {
     public class SubjectProgressViewModel : ViewModelBase
     {
+
+        private int _cachedTodayStudyTimeSeconds = -1; // -1은 아직 로드되지 않음을 의미
+        private DateTime _lastCacheDate = DateTime.MinValue;
+        private bool _isSavingToDatabase = false;
+
         private string _subjectName = string.Empty;
         public string SubjectName
         {
@@ -53,13 +58,22 @@ namespace Notea.Modules.Daily.ViewModels
                 if (string.IsNullOrEmpty(SubjectName))
                     return 0;
 
+                // ✅ 캐시 유효성 검사 (같은 날짜이고 이미 로드된 경우)
+                if (_lastCacheDate.Date == DateTime.Today.Date && _cachedTodayStudyTimeSeconds >= 0)
+                {
+                    return _cachedTodayStudyTimeSeconds;
+                }
+
                 try
                 {
                     var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
-
-                    // ✅ StudySession에서 직접 실제 측정 시간 조회
                     var actualTime = dbHelper.GetSubjectActualDailyTimeSeconds(DateTime.Today, SubjectName);
 
+                    // ✅ 캐시 업데이트
+                    _cachedTodayStudyTimeSeconds = actualTime;
+                    _lastCacheDate = DateTime.Today;
+
+                    // ✅ 로그는 캐시 갱신 시에만 출력 (무한 루프 방지)
                     System.Diagnostics.Debug.WriteLine($"[SubjectProgress] {SubjectName} 실제 측정 시간: {actualTime}초");
                     return actualTime;
                 }
@@ -71,12 +85,20 @@ namespace Notea.Modules.Daily.ViewModels
             }
             set
             {
-                // DailySubject 업데이트 (UI 표시용)
+                if (_isSavingToDatabase) return; // 무한 루프 방지
+
+                _isSavingToDatabase = true;
                 try
                 {
+                    // ✅ 캐시 먼저 업데이트
+                    _cachedTodayStudyTimeSeconds = value;
+                    _lastCacheDate = DateTime.Today;
+
+                    // DB 업데이트
                     var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
                     dbHelper.SaveDailySubject(DateTime.Today, SubjectName, ActualProgress, value, 0);
 
+                    // UI 업데이트
                     OnPropertyChanged(nameof(TodayStudyTimeSeconds));
                     OnPropertyChanged(nameof(StudyTimeText));
                     OnPropertyChanged(nameof(StudyTimeMinutes));
@@ -91,7 +113,28 @@ namespace Notea.Modules.Daily.ViewModels
                 {
                     System.Diagnostics.Debug.WriteLine($"[SubjectProgress] {SubjectName} 시간 저장 오류: {ex.Message}");
                 }
+                finally
+                {
+                    _isSavingToDatabase = false;
+                }
             }
+        }
+
+        public void RefreshStudyTimeCache()
+        {
+            _cachedTodayStudyTimeSeconds = -1; // 캐시 무효화
+            _lastCacheDate = DateTime.MinValue;
+            OnPropertyChanged(nameof(TodayStudyTimeSeconds)); // UI 갱신 트리거
+        }
+
+        // ✅ 새로 추가: 캐시된 값으로 직접 설정 (DB 조회 없이)
+        public void SetCachedStudyTime(int seconds)
+        {
+            _cachedTodayStudyTimeSeconds = seconds;
+            _lastCacheDate = DateTime.Today;
+            OnPropertyChanged(nameof(TodayStudyTimeSeconds));
+            OnPropertyChanged(nameof(StudyTimeText));
+            OnPropertyChanged(nameof(ActualProgress));
         }
 
         // ✅ 실제 측정 시간 기반 진행률 계산
@@ -168,7 +211,6 @@ namespace Notea.Modules.Daily.ViewModels
 
         // 무한 루프 방지를 위한 플래그들
         public bool _isUpdatingFromDatabase = false;
-        public bool _isSavingToDatabase = false;
 
         public SubjectProgressViewModel()
         {

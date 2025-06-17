@@ -151,15 +151,32 @@ namespace Notea.ViewModels
             // ✅ 수정: 초기화 순서 변경
             try
             {
-                // 1. 저장된 데이터 복원
+                // 1. 데이터베이스 스키마 검증 및 업데이트
+                InitializeDatabase();
+
+                // 2. 저장된 데이터 복원
                 RestoreDailySubjects();
 
-                // 2. 진행률 업데이트 시스템 설정
+                // 3. 진행률 업데이트 시스템 설정
                 SetupProgressUpdateSystem();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] 초기화 오류: {ex.Message}");
+            }
+        }
+
+        private void InitializeDatabase()
+        {
+            try
+            {
+                var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                dbHelper.EnsureSchemaComplete(); // 스키마 강제 업데이트
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 데이터베이스 스키마 검증 완료");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 데이터베이스 초기화 오류: {ex.Message}");
             }
         }
 
@@ -169,6 +186,7 @@ namespace Notea.ViewModels
             {
                 HeaderContent = _subjectHeaderView;
                 BodyContent = _subjectBodyView;
+                SidebarViewModel.SetContext("today"); 
                 System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록 페이지로 이동");
             }
             catch (Exception ex)
@@ -183,6 +201,8 @@ namespace Notea.ViewModels
             {
                 HeaderContent = _dailyHeaderView;
                 BodyContent = _dailyBodyView;
+                SidebarViewModel.SetContext("main");
+
                 System.Diagnostics.Debug.WriteLine("[MainViewModel] 오늘 페이지로 이동");
             }
             catch (Exception ex)
@@ -507,6 +527,10 @@ namespace Notea.ViewModels
 
                 var dailySubjects = dbHelper.GetDailySubjects(AppStartDate);
 
+                // ✅ 컬렉션 이벤트 임시 차단
+                var originalCollection = SharedSubjectProgress;
+                SharedSubjectProgress = new ObservableCollection<SubjectProgressViewModel>();
+
                 foreach (var (subjectName, progress, studyTimeSeconds) in dailySubjects)
                 {
                     var existingSubject = SharedSubjectProgress.FirstOrDefault(s =>
@@ -514,21 +538,30 @@ namespace Notea.ViewModels
 
                     if (existingSubject == null)
                     {
-                        // ✅ 실제 측정된 시간만으로 생성
+                        var newSubject = new SubjectProgressViewModel
+                        {
+                            SubjectName = subjectName
+                        };
+
+                        // ✅ 캐시된 값으로 설정 (DB 조회 방지)
+                        newSubject.SetCachedStudyTime(studyTimeSeconds);
+
                         SharedSubjectProgress.Add(new SubjectProgressViewModel
                         {
                             SubjectName = subjectName,
-                            TodayStudyTimeSeconds = studyTimeSeconds // ✅ 실제 측정된 시간만
+                            TodayStudyTimeSeconds = studyTimeSeconds
                         });
                     }
                     else
                     {
-                        // 기존 항목 업데이트
-                        existingSubject.TodayStudyTimeSeconds = studyTimeSeconds;
+                        existingSubject.SetCachedStudyTime(studyTimeSeconds);
                     }
                 }
 
-                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 앱 시작 시 {SharedSubjectProgress.Count}개 DailySubject 복원됨 (총 {todayTotalSeconds}초)");
+                // ✅ 복원 완료 후 이벤트 활성화
+                OnPropertyChanged(nameof(SharedSubjectProgress));
+
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] {SharedSubjectProgress.Count}개 DailySubject 복원 완료 (캐시 기반)");
             }
             catch (Exception ex)
             {

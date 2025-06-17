@@ -18,6 +18,7 @@ public partial class App : Application
         {
             // ✅ 통합된 데이터베이스 초기화 (모든 스키마 관리 포함)
             DatabaseInitializer.InitializeDatabase();
+            EnsureRuntimeSchemaComplete();
 
             // ✅ 기존 개별 스키마 업데이트 호출들 제거됨 (DatabaseInitializer에서 처리)
             // 제거된 코드들:
@@ -34,19 +35,33 @@ public partial class App : Application
 
             System.Diagnostics.Debug.WriteLine("[APP] 애플리케이션 초기화 완료");
 
-#if DEBUG
+            #if DEBUG
             // 디버그 모드에서 데이터베이스 연결 테스트
             if (DatabaseInitializer.TestConnection())
             {
                 System.Diagnostics.Debug.WriteLine("[APP] 데이터베이스 연결 테스트 성공");
             }
-#endif
+            #endif
         }
         catch (Exception ex)
         {
             System.Diagnostics.Debug.WriteLine($"[APP ERROR] 초기화 실패: {ex.Message}");
             MessageBox.Show($"애플리케이션 초기화에 실패했습니다.\n{ex.Message}", "오류", MessageBoxButton.OK, MessageBoxImage.Error);
             Shutdown();
+        }
+    }
+
+    private void EnsureRuntimeSchemaComplete()
+    {
+        try
+        {
+            var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+            dbHelper.EnsureSchemaComplete();
+            System.Diagnostics.Debug.WriteLine("[APP] 런타임 스키마 검증 완료");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[APP ERROR] 런타임 스키마 검증 실패: {ex.Message}");
         }
     }
 
