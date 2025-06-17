@@ -66,6 +66,8 @@ namespace Notea.ViewModels
 
         public ICommand ToggleSidebarCommand { get; }
         public ICommand ExpandSidebarCommand { get; }
+        public ICommand NavigateToSubjectListCommand { get; }
+        public ICommand NavigateToTodayCommand { get; }
 
         private UserControl _headerContent;
         public UserControl HeaderContent
@@ -143,6 +145,9 @@ namespace Notea.ViewModels
             ToggleSidebarCommand = new RelayCommand(ToggleSidebar);
             ExpandSidebarCommand = new RelayCommand(() => LeftSidebarWidth = new GridLength(280));
 
+            NavigateToSubjectListCommand = new RelayCommand(NavigateToSubjectList);
+            NavigateToTodayCommand = new RelayCommand(NavigateToToday);
+
             // ✅ 수정: 초기화 순서 변경
             try
             {
@@ -155,6 +160,34 @@ namespace Notea.ViewModels
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] 초기화 오류: {ex.Message}");
+            }
+        }
+
+        private void NavigateToSubjectList()
+        {
+            try
+            {
+                HeaderContent = _subjectHeaderView;
+                BodyContent = _subjectBodyView;
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록 페이지로 이동");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목 목록 이동 오류: {ex.Message}");
+            }
+        }
+
+        private void NavigateToToday()
+        {
+            try
+            {
+                HeaderContent = _dailyHeaderView;
+                BodyContent = _dailyBodyView;
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 오늘 페이지로 이동");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 오늘 페이지 이동 오류: {ex.Message}");
             }
         }
 
@@ -504,38 +537,38 @@ namespace Notea.ViewModels
         }
 
         // ✅ 과목페이지에서 호출될 메소드 (추후 구현) - 해당 과목의 실시간 시간 증가
-        public void OnSubjectPageEntered(string subjectName)
-        {
-            var subject = SharedSubjectProgress.FirstOrDefault(s =>
-                string.Equals(s.SubjectName, subjectName, StringComparison.OrdinalIgnoreCase));
+        //public void OnSubjectPageEntered(string subjectName)
+        //{
+        //    var subject = SharedSubjectProgress.FirstOrDefault(s =>
+        //        string.Equals(s.SubjectName, subjectName, StringComparison.OrdinalIgnoreCase));
 
-            if (subject != null)
-            {
-                // ✅ 타이머가 실행중일 때만 시간 증가 (추후 RightSidebarViewModel과 연동)
-                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목페이지 진입: {subjectName}");
-                // subject.IncrementRealTimeStudy(); // 매초 호출될 예정
-            }
-        }
+        //    if (subject != null)
+        //    {
+        //        // ✅ 타이머가 실행중일 때만 시간 증가 (추후 RightSidebarViewModel과 연동)
+        //        System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목페이지 진입: {subjectName}");
+        //        // subject.IncrementRealTimeStudy(); // 매초 호출될 예정
+        //    }
+        //}
 
         // ✅ 분류그룹에서 활동시 호출될 메소드 (추후 구현) - 해당 분류의 실시간 시간 증가
-        public void OnTopicGroupActivity(string subjectName, string groupTitle)
-        {
-            var subject = SharedSubjectProgress.FirstOrDefault(s =>
-                string.Equals(s.SubjectName, subjectName, StringComparison.OrdinalIgnoreCase));
+        //public void OnTopicGroupActivity(string subjectName, string groupTitle)
+        //{
+        //    var subject = SharedSubjectProgress.FirstOrDefault(s =>
+        //        string.Equals(s.SubjectName, subjectName, StringComparison.OrdinalIgnoreCase));
 
-            if (subject != null)
-            {
-                var topicGroup = subject.TopicGroups.FirstOrDefault(tg =>
-                    string.Equals(tg.GroupTitle, groupTitle, StringComparison.OrdinalIgnoreCase));
+        //    if (subject != null)
+        //    {
+        //        var topicGroup = subject.TopicGroups.FirstOrDefault(tg =>
+        //            string.Equals(tg.GroupTitle, groupTitle, StringComparison.OrdinalIgnoreCase));
 
-                if (topicGroup != null)
-                {
-                    // ✅ 타이머가 실행중일 때만 시간 증가 (추후 RightSidebarViewModel과 연동)
-                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] 분류그룹 활동: {subjectName} > {groupTitle}");
-                    // topicGroup.IncrementRealTimeStudy(); // 매초 호출될 예정
-                }
-            }
-        }
+        //        if (topicGroup != null)
+        //        {
+        //            // ✅ 타이머가 실행중일 때만 시간 증가 (추후 RightSidebarViewModel과 연동)
+        //            System.Diagnostics.Debug.WriteLine($"[MainViewModel] 분류그룹 활동: {subjectName} > {groupTitle}");
+        //            // topicGroup.IncrementRealTimeStudy(); // 매초 호출될 예정
+        //        }
+        //    }
+        //}
 
         public void OnDateSelected(DateTime date)
         {

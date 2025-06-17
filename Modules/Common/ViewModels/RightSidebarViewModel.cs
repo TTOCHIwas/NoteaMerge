@@ -108,84 +108,84 @@ namespace Notea.Modules.Common.ViewModels
             EndSession();
         }
 
-        private void InitializeTimer()
-        {
-            _timer = new DispatcherTimer
-            {
-                Interval = TimeSpan.FromSeconds(1)
-            };
-            _timer.Tick += Timer_Tick;
+        //private void InitializeTimer()
+        //{
+        //    _timer = new DispatcherTimer
+        //    {
+        //        Interval = TimeSpan.FromSeconds(1)
+        //    };
+        //    _timer.Tick += Timer_Tick;
 
-            LoadTodayTotalTime();
+        //    LoadTodayTotalTime();
 
-            // 앱 종료 이벤트 구독
-            if (Application.Current != null)
-            {
-                Application.Current.Exit += Application_Exit;
-                Application.Current.SessionEnding += Application_SessionEnding;
-            }
-        }
+        //    // 앱 종료 이벤트 구독
+        //    if (Application.Current != null)
+        //    {
+        //        Application.Current.Exit += Application_Exit;
+        //        Application.Current.SessionEnding += Application_SessionEnding;
+        //    }
+        //}
 
-        private void Timer_Tick(object sender, EventArgs e)
-        {
-            if (_isRunning)
-            {
-                _currentSessionTime = _currentSessionTime.Add(TimeSpan.FromSeconds(1));
+        //private void Timer_Tick(object sender, EventArgs e)
+        //{
+        //    if (_isRunning)
+        //    {
+        //        _currentSessionTime = _currentSessionTime.Add(TimeSpan.FromSeconds(1));
 
-                // 활성 과목/분류가 있으면 실시간으로 DB 저장 (매 10초마다)
-                if (_currentSessionTime.TotalSeconds % 10 == 0)
-                {
-                    SaveIncrementalSession();
-                }
+        //        // 활성 과목/분류가 있으면 실시간으로 DB 저장 (매 10초마다)
+        //        if (_currentSessionTime.TotalSeconds % 10 == 0)
+        //        {
+        //            SaveIncrementalSession();
+        //        }
 
-                // UI 업데이트
-                OnPropertyChanged(nameof(TotalStudyTimeDisplay));
-                OnPropertyChanged(nameof(CurrentSessionTimeDisplay));
+        //        // UI 업데이트
+        //        OnPropertyChanged(nameof(TotalStudyTimeDisplay));
+        //        OnPropertyChanged(nameof(CurrentSessionTimeDisplay));
 
-                // ✅ 진행률 업데이트 이벤트 발생 (매 30초마다)
-                if (_currentSessionTime.TotalSeconds % 30 == 0)
-                {
-                    ProgressUpdateRequested?.Invoke();
-                }
-            }
-        }
+        //        // ✅ 진행률 업데이트 이벤트 발생 (매 30초마다)
+        //        if (_currentSessionTime.TotalSeconds % 30 == 0)
+        //        {
+        //            ProgressUpdateRequested?.Invoke();
+        //        }
+        //    }
+        //}
 
-        private void SaveIncrementalSession()
-        {
-            try
-            {
-                if (!string.IsNullOrEmpty(_currentActiveSubject))
-                {
-                    var endTime = DateTime.Now;
-                    var startTime = endTime.AddSeconds(-10); // 지난 10초
+        //private void SaveIncrementalSession()
+        //{
+        //    try
+        //    {
+        //        if (!string.IsNullOrEmpty(_currentActiveSubject))
+        //        {
+        //            var endTime = DateTime.Now;
+        //            var startTime = endTime.AddSeconds(-10); // 지난 10초
 
-                    // 활성 분류가 있으면 CategoryId와 함께 저장
-                    if (!string.IsNullOrEmpty(_currentActiveTopicGroup) && _currentActiveCategoryId.HasValue)
-                    {
-                        _db.SaveStudySession(
-                            startTime,
-                            endTime,
-                            10,
-                            _currentActiveSubject,
-                            _currentActiveTopicGroup,
-                            _currentActiveCategoryId.Value
-                        );
+        //            // 활성 분류가 있으면 CategoryId와 함께 저장
+        //            if (!string.IsNullOrEmpty(_currentActiveTopicGroup) && _currentActiveCategoryId.HasValue)
+        //            {
+        //                _db.SaveStudySession(
+        //                    startTime,
+        //                    endTime,
+        //                    10,
+        //                    _currentActiveSubject,
+        //                    _currentActiveTopicGroup,
+        //                    _currentActiveCategoryId.Value
+        //                );
 
-                        System.Diagnostics.Debug.WriteLine($"[Timer] 증분 저장: {_currentActiveSubject}>{_currentActiveTopicGroup} (CategoryId: {_currentActiveCategoryId}) - 10초");
-                    }
-                    else
-                    {
-                        // 과목만 활성인 경우
-                        _db.SaveStudySession(startTime, endTime, 10, _currentActiveSubject);
-                        System.Diagnostics.Debug.WriteLine($"[Timer] 증분 저장: {_currentActiveSubject} - 10초");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[Timer] 증분 세션 저장 오류: {ex.Message}");
-            }
-        }
+        //                System.Diagnostics.Debug.WriteLine($"[Timer] 증분 저장: {_currentActiveSubject}>{_currentActiveTopicGroup} (CategoryId: {_currentActiveCategoryId}) - 10초");
+        //            }
+        //            else
+        //            {
+        //                // 과목만 활성인 경우
+        //                _db.SaveStudySession(startTime, endTime, 10, _currentActiveSubject);
+        //                System.Diagnostics.Debug.WriteLine($"[Timer] 증분 저장: {_currentActiveSubject} - 10초");
+        //            }
+        //        }
+        //    }
+        //    catch (Exception ex)
+        //    {
+        //        System.Diagnostics.Debug.WriteLine($"[Timer] 증분 세션 저장 오류: {ex.Message}");
+        //    }
+        //}
 
         public void SetActiveSubject(string subjectName, string topicGroup = "")
         {
@@ -343,13 +343,7 @@ namespace Notea.Modules.Common.ViewModels
             _currentSessionTime = _currentSessionTime.Add(TimeSpan.FromSeconds(1));
             OnPropertyChanged(nameof(TotalStudyTimeDisplay));
 
-            //// ✅ 활성 과목/분류 시간 증가 (추후 MainViewModel을 통해 호출)
-            //if (_isRunning && !string.IsNullOrEmpty(_currentActiveSubject))
-            //{
-            //    UpdateActiveSubjectTime();
-            //}
-
-            // ✅ 활성 카테고리 시간 증가 (새로 추가)
+            // 활성 카테고리 시간 증가
             if (_isRunning && _currentActiveCategoryId.HasValue && !string.IsNullOrEmpty(_currentActiveSubjectName))
             {
                 try
@@ -366,7 +360,7 @@ namespace Notea.Modules.Common.ViewModels
             if (_currentSessionTime.TotalSeconds % 10 == 0)
             {
                 ProgressUpdateRequested?.Invoke();
-                StatisticsUpdateRequested?.Invoke(); // 전체 통계 새로고침 이벤트
+                // StatisticsUpdateRequested?.Invoke(); // 이 줄 제거됨
             }
         }
 
