@@ -12,8 +12,8 @@ namespace Notea.Modules.Subject.Models
     {
         public int CategoryId { get; set; }
         public string Title { get; set; }
-        public int Level { get; set; } = 1;
-        public ObservableCollection<NoteLine> Lines { get; set; } = new();
-        public List<NoteCategory> SubCategories { get; set; } = new();
+        public int Level { get; set; }
+        public List<NoteLine> Lines { get; set; } = new List<NoteLine>();
+        public List<NoteCategory> SubCategories { get; set; } = new List<NoteCategory>();
     }
 }

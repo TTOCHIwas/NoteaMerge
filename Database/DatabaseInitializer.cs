@@ -62,7 +62,7 @@ namespace Notea.Database
             using var cmd = connection.CreateCommand();
 
             cmd.CommandText = @"
-        -- ===== 통합된 Subject 테이블 (메인 + 필기 시스템 통합) =====
+        -- ===== 통합된 Subject 테이블 (학습시간 포함) =====
         CREATE TABLE IF NOT EXISTS Subject (
             subjectId INTEGER PRIMARY KEY AUTOINCREMENT,
             Name TEXT NOT NULL UNIQUE,
@@ -82,11 +82,11 @@ namespace Notea.Database
             categoryId INTEGER PRIMARY KEY AUTOINCREMENT,
             displayOrder INTEGER DEFAULT 0,
             title VARCHAR NOT NULL,
-            subjectId INTEGER NOT NULL,                    -- ✅ Subject.subjectId 참조
+            subjectId INTEGER NOT NULL,                    -- Subject.subjectId 참조
             timeId INTEGER NOT NULL,
             level INTEGER DEFAULT 1,
             parentCategoryId INTEGER DEFAULT NULL,
-            FOREIGN KEY (subjectId) REFERENCES Subject(subjectId),  -- ✅ 수정된 참조
+            FOREIGN KEY (subjectId) REFERENCES Subject(subjectId),
             FOREIGN KEY (timeId) REFERENCES time(timeId)
         );
 
@@ -94,18 +94,18 @@ namespace Notea.Database
             textId INTEGER PRIMARY KEY AUTOINCREMENT,
             content TEXT NOT NULL,
             categoryId INTEGER NOT NULL,
-            subjectId INTEGER NOT NULL,                    -- ✅ Subject.subjectId 참조
+            subjectId INTEGER NOT NULL,                    -- Subject.subjectId 참조
             displayOrder INTEGER DEFAULT 0,
             timeId INTEGER NOT NULL,
             level INTEGER DEFAULT 1,
             imageUrl VARCHAR DEFAULT NULL,
             contentType VARCHAR DEFAULT 'text',
             FOREIGN KEY (categoryId) REFERENCES category(categoryId),
-            FOREIGN KEY (subjectId) REFERENCES Subject(subjectId),  -- ✅ 수정된 참조
+            FOREIGN KEY (subjectId) REFERENCES Subject(subjectId),
             FOREIGN KEY (timeId) REFERENCES time(timeId)
         );
 
-        -- ===== 기타 테이블들 (기존 유지) =====
+        -- ===== 기본 테이블들 =====
         CREATE TABLE IF NOT EXISTS Note (
             NoteId INTEGER PRIMARY KEY AUTOINCREMENT,
             Content TEXT NOT NULL,
@@ -127,10 +127,10 @@ namespace Notea.Database
 
         CREATE TABLE IF NOT EXISTS TopicGroup (
             Id INTEGER PRIMARY KEY AUTOINCREMENT,
-            SubjectId INTEGER NOT NULL,                    -- ✅ Subject.subjectId 참조  
+            SubjectId INTEGER NOT NULL,                    -- Subject.subjectId 참조
             Name TEXT NOT NULL,
             TotalStudyTimeSeconds INTEGER NOT NULL DEFAULT 0,
-            FOREIGN KEY (SubjectId) REFERENCES Subject(subjectId) ON DELETE CASCADE  -- ✅ 수정된 참조
+            FOREIGN KEY (SubjectId) REFERENCES Subject(subjectId) ON DELETE CASCADE
         );
 
         CREATE TABLE IF NOT EXISTS TopicItem (
@@ -240,6 +240,68 @@ namespace Notea.Database
 
             cmd.ExecuteNonQuery();
             Debug.WriteLine("[DB] 모든 테이블 생성 완료 - Subject 테이블 통합됨");
+
+            // ✅ 기존 subject 테이블이 있다면 데이터 마이그레이션 후 삭제
+            MigrateOldSubjectTable(connection);
+        }
+
+        private static void MigrateOldSubjectTable(SQLiteConnection connection)
+        {
+            try
+            {
+                using var cmd = connection.CreateCommand();
+
+                // 1. 기존 subject 테이블 존재 확인
+                cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='subject'";
+                var tableExists = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+
+                if (tableExists)
+                {
+                    // 2. 기존 데이터를 Subject 테이블로 복사
+                    cmd.CommandText = @"
+                INSERT OR IGNORE INTO Subject (subjectId, Name, createdDate, lastModifiedDate)
+                SELECT subJectId, title, createdDate, lastModifiedDate 
+                FROM subject";
+
+                    var migratedRows = cmd.ExecuteNonQuery();
+                    Debug.WriteLine($"[DB] subject → Subject 마이그레이션: {migratedRows}개 행");
+
+                    // 3. category/noteContent 테이블의 외래키 업데이트
+                    cmd.CommandText = @"
+                UPDATE category 
+                SET subjectId = (
+                    SELECT s.subjectId 
+                    FROM Subject s, subject old_s 
+                    WHERE s.Name = old_s.title AND old_s.subJectId = category.subjectId
+                )
+                WHERE EXISTS (
+                    SELECT 1 FROM subject old_s WHERE old_s.subJectId = category.subjectId
+                )";
+                    cmd.ExecuteNonQuery();
+
+                    cmd.CommandText = @"
+                UPDATE noteContent 
+                SET subjectId = (
+                    SELECT s.subjectId 
+                    FROM Subject s, subject old_s 
+                    WHERE s.Name = old_s.title AND old_s.subJectId = noteContent.subjectId
+                )
+                WHERE EXISTS (
+                    SELECT 1 FROM subject old_s WHERE old_s.subJectId = noteContent.subjectId
+                )";
+                    cmd.ExecuteNonQuery();
+
+                    // 4. 기존 subject 테이블 삭제
+                    cmd.CommandText = "DROP TABLE subject";
+                    cmd.ExecuteNonQuery();
+                    Debug.WriteLine("[DB] 기존 subject 테이블 삭제 완료");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB WARNING] subject 테이블 마이그레이션 실패: {ex.Message}");
+                // 마이그레이션 실패해도 진행 (새 설치의 경우)
+            }
         }
 
         private static void MigrateSubjectTables(SQLiteConnection connection)

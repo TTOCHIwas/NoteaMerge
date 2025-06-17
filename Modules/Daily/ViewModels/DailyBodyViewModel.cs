@@ -360,7 +360,6 @@ namespace Notea.Modules.Daily.ViewModels
                     }
 
                     Subjects.Add(newSubject);
-                    System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 과목 추가됨: {subjectName} ({topicGroupsData.Count}개 그룹, {studyTimeSeconds}초)");
                 }
 
                 System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 최종 과목 수: {Subjects.Count}개");
