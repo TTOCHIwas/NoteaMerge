@@ -1,0 +1,79 @@
+﻿<!-- SearchPanel.xaml -->
+<UserControl x:Class="Notea.Modules.Subject.Views.SearchPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Notea.Converters">
+
+    <UserControl.Resources>
+        <local:BoolToVisibilityConverterKDH x:Key="BoolToVisibilityConverter" />
+    </UserControl.Resources>
+
+    <Border Background="Transparent" 
+            BorderBrush="Transparent" 
+            BorderThickness="0,0,0,1"
+            Visibility="{Binding IsSearchPanelVisible, Converter={StaticResource BoolToVisibilityConverter}}">
+        <Grid Margin="10,5">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="5*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <Button Grid.Column="0" 
+                    Style="{StaticResource SearchButtonStyle}"
+                    Command="{Binding SearchCommand}"
+                    Margin="10,0"
+                    Padding="10,2"/>
+
+            <TextBox Grid.Column="1" 
+                     Style="{StaticResource UnderlineTextBoxStyle}"
+                     x:Name="SearchBox"
+                     Text="{Binding SearchQuery, UpdateSourceTrigger=PropertyChanged}"
+                     Background="Transparent"
+                     VerticalAlignment="Center">
+                <TextBox.InputBindings>
+                    <KeyBinding Key="Enter" Command="{Binding SearchCommand}"/>
+                    <KeyBinding Key="Escape" Command="{Binding CloseSearchCommand}"/>
+                </TextBox.InputBindings>
+            </TextBox>
+
+            <Button Grid.Column="2" 
+                    Content="◀" 
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Command="{Binding PreviousResultCommand}"
+                    Margin="5,0"
+                    Padding="5,2"/>
+
+            <Button Grid.Column="3" 
+                    Content="▶" 
+                    Background="Transparent"
+                    BorderThickness="0"
+                    Command="{Binding NextResultCommand}"
+                    Margin="0,0,10,0"
+                    Padding="5,2"/>
+
+            <TextBlock Grid.Column="4" 
+                       Text="{Binding CurrentResultText}" 
+                       VerticalAlignment="Center"
+                       Margin="0,0,10,0"/>
+
+            <!--<TextBlock Grid.Column="6" 
+                       Text="{Binding ResultCountText}" 
+                       VerticalAlignment="Center"
+                       Foreground="Gray"/>-->
+
+            <Button Grid.Column="6" 
+                    Content="✕" 
+                    Command="{Binding CloseSearchCommand}"
+                    Margin="10,0,0,0"
+                    Padding="5,2"
+                    Background="Transparent"
+                    BorderThickness="0"/>
+        </Grid>
+    </Border>
+</UserControl>

@@ -37,10 +37,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Folder Include="Controls\" />
-  </ItemGroup>
-
-  <ItemGroup>
     <Resource Include="Resources\Images\add_default.svg" />
     <Resource Include="Resources\Images\add_hover.svg" />
     <Resource Include="Resources\Images\add_schedule.svg" />

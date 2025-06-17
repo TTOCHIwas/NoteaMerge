@@ -85,29 +85,6 @@ layOrder INTEGER DEFAULT 0,
                         FOREIGN KEY (subJectId) REFERENCES subject (subJectId)
                     );
 
-                    CREATE TABLE IF NOT EXISTS subject
-                    (
-                        subJectId INTEGER PRIMARY KEY AUTOINCREMENT,
-                        title     VARCHAR NOT NULL
-                    );
-
-                    CREATE TABLE IF NOT EXISTS time
-                    (
-                        timeId     INTEGER PRIMARY KEY AUTOINCREMENT,
-                        createDate DATETIME NOT NULL,
-                        record     INT      NOT NULL
-                    );
-
-                    CREATE TABLE IF NOT EXISTS todo
-                    (
-                        todoId     INTEGER PRIMARY KEY AUTOINCREMENT,
-                        createDate DATETIME NOT NULL,
-                        title      VARCHAR  NOT NULL,
-                        isDo       BOOLEAN  NOT NULL
-                    );
-
-                    -- 기본 데이터 삽입
-                    INSERT OR IGNORE INTO subject (subJectId, title) VALUES (1, '윈도우즈 프로그래밍');
                     ";
 
                 command.ExecuteNonQuery();
@@ -245,7 +222,7 @@ layOrder INTEGER DEFAULT 0,
             {
                 string query = @"
             SELECT sql FROM sqlite_master 
-            WHERE type='table' AND name IN ('category', 'noteContent', 'subject');";
+            WHERE type='table' AND name IN ('category', 'noteContent', 'Subject');";
 
                 var result = ExecuteSelect(query);
                 foreach (DataRow row in result.Rows)

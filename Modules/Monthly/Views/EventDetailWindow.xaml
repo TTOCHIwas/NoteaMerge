@@ -1,0 +1,66 @@
+﻿<Window x:Class="Notea.Modules.Monthly.Views.EventDetailWindow"  
+       xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"  
+       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"  
+       xmlns:d="http://schemas.microsoft.com/expression/blend/2008"  
+       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"  
+       xmlns:local="clr-namespace:Notea.Modules.Monthly.Views"  
+       xmlns:controls="clr-namespace:Notea.Controls"  
+       mc:Ignorable="d"  
+       Title="EventDetailWindow"  SizeToContent="WidthAndHeight"
+        >  
+   <Grid Margin="10">  
+       <Grid.RowDefinitions>  
+           <RowDefinition Height="auto"/>  
+           <RowDefinition Height="auto"/>  
+           <RowDefinition Height="auto"/>  
+           <RowDefinition Height="auto"/>
+            <RowDefinition Height="auto"/>
+        </Grid.RowDefinitions>  
+
+       <Grid Grid.Row="0">  
+           <Grid.RowDefinitions>  
+               <RowDefinition Height="auto"/>  
+               <RowDefinition Height="*"/>  
+           </Grid.RowDefinitions>
+            <TextBlock Style="{StaticResource eventInfoTitle}" Grid.Row="0" Text="제목" Margin="0,10,0,0" />
+            <TextBox Style="{StaticResource eventDetailInfo}" Grid.Row="1" Text="{Binding Title, UpdateSourceTrigger=PropertyChanged}"/>  
+       </Grid>  
+
+       <Grid Grid.Row="1">  
+           <Grid.RowDefinitions>  
+               <RowDefinition Height="auto"/>  
+               <RowDefinition Height="*"/>  
+           </Grid.RowDefinitions>
+            <TextBlock Style="{StaticResource eventInfoTitle}" Grid.Row="0" Text="설명" Margin="0,10,0,0" />
+            <TextBox Style="{StaticResource eventDetailInfo}" Grid.Row="1" Text="{Binding Description, UpdateSourceTrigger=PropertyChanged}"/>
+        </Grid>  
+
+       <Grid Grid.Row="2">  
+           <Grid.ColumnDefinitions>  
+               <ColumnDefinition Width="*"/>  
+               <ColumnDefinition Width="10"/>  
+               <ColumnDefinition Width="*"/>  
+           </Grid.ColumnDefinitions>  
+
+           <StackPanel Grid.Column="0">  
+               <TextBlock Style="{StaticResource eventInfoTitle}" Text="시작일" Margin="0,10,0,0" />  
+               <DatePicker SelectedDate="{Binding StartDate}" />  
+           </StackPanel>  
+
+           <StackPanel Grid.Column="2">
+                <TextBlock Style="{StaticResource eventInfoTitle}" Text="종료일" Margin="0,10,0,0" />  
+               <DatePicker SelectedDate="{Binding EndDate}" />  
+           </StackPanel>  
+       </Grid>
+        <CheckBox Style="{StaticResource ToDoCheckBoxStyle}" Grid.Row="3" Content="D-Day" IsChecked="{Binding IsDday}" Margin="0,10,0,0"/>
+
+        <Grid Grid.Row="4" Margin="0, 10, 0, 0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Button Grid.Column="0" Content="삭제" Style="{StaticResource EventWindowButtonStyle}" Click="Delete_Click" Margin="0,0,10,0" Width="80" Height="40" HorizontalAlignment="Left"/>
+            <Button Grid.Column="1" Content="확인" Style="{StaticResource EventWindowButtonStyle}" Click="Confirm_Click" Width="80" Height="40" HorizontalAlignment="Right"/>
+        </Grid>
+    </Grid>  
+</Window>
