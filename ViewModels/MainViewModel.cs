@@ -147,13 +147,13 @@ namespace Notea.ViewModels
             NavigateToSubjectListCommand = new RelayCommand(NavigateToSubjectList);
             NavigateToTodayCommand = new RelayCommand(NavigateToToday);
 
-            // ✅ 수정: 데이터베이스 중복 초기화 제거
             try
             {
                 RestoreDailySubjects();
-                // SetupProgressUpdateSystem(); // 🚨 이 줄도 임시 주석 처리
 
-                System.Diagnostics.Debug.WriteLine("[MainViewModel] 초기화 완료 (데이터 로딩 스킵됨)");
+                SetupProgressUpdateSystem();
+
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] Phase 3 초기화 완료 - 전체 시스템 활성화");
             }
             catch (Exception ex)
             {

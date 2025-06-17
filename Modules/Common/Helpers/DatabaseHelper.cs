@@ -44,15 +44,113 @@ namespace Notea.Modules.Common.Helpers
 
         private void EnsureDatabaseReady()
         {
-            // 🚨 무한루프 방지: 완전히 비활성화
-            System.Diagnostics.Debug.WriteLine("[DatabaseHelper] EnsureDatabaseReady 스킵됨");
-            return;
+            if (_isInitialized) return;
+
+            lock (_initLock)
+            {
+                if (_isInitialized) return;
+
+                try
+                {
+                    // ✅ 이 줄들을 다시 활성화
+                    AddCategoryIdToStudySessionDirect();
+                    MigrateStudySessionTableDirect();
+                    _isInitialized = true;
+                    System.Diagnostics.Debug.WriteLine("[DatabaseHelper] 지연 초기화 완료");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DatabaseHelper] 지연 초기화 실패: {ex.Message}");
+                    throw;
+                }
+            }
+        }
+
+        private void MigrateStudySessionTableDirect()
+        {
+            try
+            {
+                using var conn = new SQLiteConnection(Notea.Database.DatabaseInitializer.GetConnectionString());
+                conn.Open();
+
+                // 테이블 구조 확인
+                using var checkCmd = conn.CreateCommand();
+                checkCmd.CommandText = "PRAGMA table_info(StudySession)";
+                using var reader = checkCmd.ExecuteReader();
+
+                var columns = new List<string>();
+                while (reader.Read())
+                {
+                    columns.Add(reader["name"].ToString());
+                }
+                reader.Close();
+
+                // 필요한 컬럼들 추가
+                var requiredColumns = new Dictionary<string, string>
+        {
+            { "CategoryId", "INTEGER" },
+            { "SubjectName", "TEXT" },
+            { "TopicGroupName", "TEXT" } // ✅ 이 컬럼이 중요!
+        };
+
+                foreach (var column in requiredColumns)
+                {
+                    if (!columns.Contains(column.Key))
+                    {
+                        using var alterCmd = conn.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE StudySession ADD COLUMN {column.Key} {column.Value}";
+                        alterCmd.ExecuteNonQuery();
+                        System.Diagnostics.Debug.WriteLine($"[DB] StudySession 테이블에 {column.Key} 컬럼 추가됨");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DB] StudySession 테이블 마이그레이션 오류: {ex.Message}");
+            }
+        }
+
+        private void AddCategoryIdToStudySessionDirect()
+        {
+            try
+            {
+                using var conn = new SQLiteConnection(Notea.Database.DatabaseInitializer.GetConnectionString());
+                conn.Open();
+
+                // CategoryId 컬럼이 이미 있는지 확인
+                using var checkCmd = conn.CreateCommand();
+                checkCmd.CommandText = "PRAGMA table_info(StudySession)";
+                using var reader = checkCmd.ExecuteReader();
+
+                bool hasCategoryId = false;
+                while (reader.Read())
+                {
+                    if (reader["name"].ToString() == "CategoryId")
+                    {
+                        hasCategoryId = true;
+                        break;
+                    }
+                }
+                reader.Close();
+
+                // CategoryId 컬럼이 없으면 추가
+                if (!hasCategoryId)
+                {
+                    using var alterCmd = conn.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE StudySession ADD COLUMN CategoryId INTEGER";
+                    alterCmd.ExecuteNonQuery();
+                    System.Diagnostics.Debug.WriteLine("[DB] StudySession 테이블에 CategoryId 컬럼 추가됨");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DB] CategoryId 컬럼 추가 오류: {ex.Message}");
+            }
         }
 
         public SQLiteConnection GetConnection()
         {
-            // 🚨 EnsureDatabaseReady 호출 제거하여 순환 호출 방지
-            // EnsureDatabaseReady(); // 이 줄 완전 삭제
+            EnsureDatabaseReady(); // ✅ 이 줄을 다시 활성화
             return new SQLiteConnection(Notea.Database.DatabaseInitializer.GetConnectionString());
         }
 
