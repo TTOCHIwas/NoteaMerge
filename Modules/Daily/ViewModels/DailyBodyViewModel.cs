@@ -37,6 +37,10 @@ namespace Notea.Modules.Daily.ViewModels
             }
         }
 
+        private bool _isLoadingSubjects = false;
+        private bool _isLoadingFromDatabase = false;
+        private bool _hasLoadedOnce = false; // 초기 로드 완료 플래그
+
         // TODO 리스트
         public ObservableCollection<TodoItem> TodoList { get; set; }
 
@@ -66,11 +70,6 @@ namespace Notea.Modules.Daily.ViewModels
         public ICommand StartAddCommand { get; }
         public ICommand DeleteTodoCommand { get; }
 
-        // 🆕 무한 루프 방지를 위한 강화된 플래그들
-        private bool _isLoadingSubjects = false;
-        private bool _isLoadingFromDatabase = false;
-        private bool _hasLoadedOnce = false; // 초기 로드 완료 플래그
-
         public DailyBodyViewModel(DateTime appStartDate, bool skipInitialLoad = false)
         {
             System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 생성자 호출 - skipInitialLoad: {skipInitialLoad}");
@@ -92,11 +91,11 @@ namespace Notea.Modules.Daily.ViewModels
 
             System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] Commands 초기화 완료");
 
-            // 🆕 초기 로딩 스킵 옵션
+            // ✅ 초기 로딩 스킵 옵션 강화
             if (!skipInitialLoad)
             {
                 System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 초기 데이터 로딩 시작");
-                LoadDailyData(SelectedDate);
+                LoadDailyDataSafe(SelectedDate);
             }
             else
             {
@@ -104,6 +103,18 @@ namespace Notea.Modules.Daily.ViewModels
             }
 
             System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 생성자 완료");
+        }
+
+        public void InitializeDataWhenReady()
+        {
+            if (_hasLoadedOnce)
+            {
+                System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 이미 로드 완료됨 - 스킵");
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 지연 데이터 초기화 시작");
+            LoadDailyDataSafe(SelectedDate);
         }
 
         public void LoadDailyDataSafe(DateTime date)

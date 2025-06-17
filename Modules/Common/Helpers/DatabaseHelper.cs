@@ -15,6 +15,10 @@ namespace Notea.Modules.Common.Helpers
         private static readonly object _lockObject = new object();
         private readonly string _dbPath;
 
+        // ✅ 지연 초기화를 위한 플래그들
+        private bool _isInitialized = false;
+        private readonly object _initLock = new object();
+
         // 싱글톤 패턴
         public static DatabaseHelper Instance
         {
@@ -35,13 +39,37 @@ namespace Notea.Modules.Common.Helpers
         private DatabaseHelper()
         {
             _dbPath = Notea.Database.DatabaseInitializer.GetDatabasePath();
-            AddCategoryIdToStudySession();
-            MigrateStudySessionTable();
-            Initialize();
+            System.Diagnostics.Debug.WriteLine("[DatabaseHelper] 싱글톤 인스턴스 생성 완료");
+        }
+
+        private void EnsureDatabaseReady()
+        {
+            if (_isInitialized) return;
+
+            lock (_initLock)
+            {
+                if (_isInitialized) return;
+
+                try
+                {
+                    // 이제 여기서 초기화 작업 수행
+                    AddCategoryIdToStudySession();
+                    MigrateStudySessionTable();
+                    Initialize();
+                    _isInitialized = true;
+                    System.Diagnostics.Debug.WriteLine("[DatabaseHelper] 지연 초기화 완료");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DatabaseHelper] 지연 초기화 실패: {ex.Message}");
+                    throw;
+                }
+            }
         }
 
         public SQLiteConnection GetConnection()
         {
+            EnsureDatabaseReady(); // ✅ 연결 요청 시 초기화 보장
             return new SQLiteConnection(Notea.Database.DatabaseInitializer.GetConnectionString());
         }
 
@@ -696,21 +724,24 @@ namespace Notea.Modules.Common.Helpers
 
         public void EnsureSchemaComplete()
         {
+            // 🚨 DatabaseInitializer에서 이미 스키마 업데이트가 완료되었으므로 
+            // 여기서는 추가 작업만 수행하거나 스킵
+            if (_isInitialized)
+            {
+                System.Diagnostics.Debug.WriteLine("[DatabaseHelper] 스키마 이미 완료됨 - 스킵");
+                return;
+            }
+
             try
             {
-                // 1. 기존 스키마 업데이트 실행
-                ForceSchemaUpdate();
-
-                // 2. ✅ 새로 추가: TopicItem 관련 완전 정리
-                RemoveTopicItemTableCompletely();
-                CleanupTopicItemReferences();
-
-                System.Diagnostics.Debug.WriteLine("[DB] 스키마 검증 및 TopicItem 완전 제거 완료");
+                // 필요한 경우에만 추가 스키마 작업 수행
+                EnsureDatabaseReady();
+                System.Diagnostics.Debug.WriteLine("[DB] 스키마 검증 완료");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[DB ERROR] 스키마 검증 실패: {ex.Message}");
-                // TopicItem 삭제 실패해도 앱은 정상 동작해야 함
+                // 스키마 오류가 있어도 앱은 계속 실행
             }
         }
 
