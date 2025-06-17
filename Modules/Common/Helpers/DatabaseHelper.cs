@@ -44,87 +44,23 @@ namespace Notea.Modules.Common.Helpers
 
         private void EnsureDatabaseReady()
         {
-            if (_isInitialized) return;
-
-            lock (_initLock)
-            {
-                if (_isInitialized) return;
-
-                try
-                {
-                    // 이제 여기서 초기화 작업 수행
-                    AddCategoryIdToStudySession();
-                    MigrateStudySessionTable();
-                    Initialize();
-                    _isInitialized = true;
-                    System.Diagnostics.Debug.WriteLine("[DatabaseHelper] 지연 초기화 완료");
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[DatabaseHelper] 지연 초기화 실패: {ex.Message}");
-                    throw;
-                }
-            }
+            // 🚨 무한루프 방지: 완전히 비활성화
+            System.Diagnostics.Debug.WriteLine("[DatabaseHelper] EnsureDatabaseReady 스킵됨");
+            return;
         }
 
         public SQLiteConnection GetConnection()
         {
-            EnsureDatabaseReady(); // ✅ 연결 요청 시 초기화 보장
+            // 🚨 EnsureDatabaseReady 호출 제거하여 순환 호출 방지
+            // EnsureDatabaseReady(); // 이 줄 완전 삭제
             return new SQLiteConnection(Notea.Database.DatabaseInitializer.GetConnectionString());
         }
 
         public void Initialize()
         {
-            lock (_lockObject)
-            {
-                try
-                {
-                    SQLiteConnection.ClearAllPools();
-                    GC.Collect();
-                    GC.WaitForPendingFinalizers();
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[DB] 연결 정리 중 오류: {ex.Message}");
-                }
-
-                int retryCount = 0;
-                int maxRetries = 5;
-
-                while (retryCount < maxRetries)
-                {
-                    try
-                    {
-                        using var conn = GetConnection();
-                        conn.Open();
-
-                        using var pragmaCmd = conn.CreateCommand();
-                        pragmaCmd.CommandText = "PRAGMA foreign_keys=ON;";
-                        pragmaCmd.ExecuteNonQuery();
-
-                        System.Diagnostics.Debug.WriteLine("[DB] 연결 테스트 및 PRAGMA 설정 완료");
-                        break;
-                    }
-                    catch (SQLiteException ex) when (ex.ErrorCode == 5)
-                    {
-                        retryCount++;
-                        System.Diagnostics.Debug.WriteLine($"[DB] 연결 재시도 {retryCount}/{maxRetries}: {ex.Message}");
-
-                        if (retryCount >= maxRetries)
-                        {
-                            System.Diagnostics.Debug.WriteLine("[DB] 연결 실패");
-                            throw new Exception("데이터베이스에 연결할 수 없습니다.");
-                        }
-
-                        System.Threading.Thread.Sleep(100);
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[DB] 초기화 오류: {ex.Message}");
-                        throw;
-                    }
-                }
-            }
+            // 🚨 무한루프 방지: 완전히 비활성화
+            System.Diagnostics.Debug.WriteLine("[DatabaseHelper] Initialize 스킵됨 - DatabaseInitializer에서 이미 처리");
+            return;
         }
 
         private T ExecuteWithRetry<T>(Func<T> operation, int maxRetries = 3)
@@ -724,25 +660,10 @@ namespace Notea.Modules.Common.Helpers
 
         public void EnsureSchemaComplete()
         {
-            // 🚨 DatabaseInitializer에서 이미 스키마 업데이트가 완료되었으므로 
-            // 여기서는 추가 작업만 수행하거나 스킵
-            if (_isInitialized)
-            {
-                System.Diagnostics.Debug.WriteLine("[DatabaseHelper] 스키마 이미 완료됨 - 스킵");
-                return;
-            }
-
-            try
-            {
-                // 필요한 경우에만 추가 스키마 작업 수행
-                EnsureDatabaseReady();
-                System.Diagnostics.Debug.WriteLine("[DB] 스키마 검증 완료");
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"[DB ERROR] 스키마 검증 실패: {ex.Message}");
-                // 스키마 오류가 있어도 앱은 계속 실행
-            }
+            // 🚨 무한루프 방지: 완전히 비활성화
+            // DatabaseInitializer에서 이미 모든 스키마 초기화가 완료되므로 여기서는 아무것도 하지 않음
+            System.Diagnostics.Debug.WriteLine("[DatabaseHelper] EnsureSchemaComplete 스킵됨 - DatabaseInitializer에서 이미 처리");
+            return;
         }
 
         private void LoadTopicItemsForGroup(SQLiteConnection conn, TopicGroupViewModel topicGroup, int groupId)

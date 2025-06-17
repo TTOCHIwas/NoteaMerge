@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Windows.Input;
@@ -119,14 +120,14 @@ namespace Notea.Modules.Daily.ViewModels
 
         public void LoadDailyDataSafe(DateTime date)
         {
-            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] LoadDailyDataSafe 호출 - 날짜: {date.ToShortDateString()}");
+            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] Phase 2 LoadDailyDataSafe 호출 - 날짜: {date.ToShortDateString()}");
 
             try
             {
                 // 중복 로딩 방지 강화
-                if (SelectedDate.Date == date.Date && _hasLoadedOnce && (Subjects?.Count > 0 || TodoList?.Count > 0))
+                if (SelectedDate.Date == date.Date && _hasLoadedOnce && (TodoList?.Count > 0 || !string.IsNullOrEmpty(Comment)))
                 {
-                    System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 이미 로드된 데이터 존재 - 안전한 로딩 스킵");
+                    System.Diagnostics.Debug.WriteLine("[Phase2] 이미 로드된 데이터 존재 - 안전한 로딩 스킵");
                     return;
                 }
 
@@ -137,65 +138,65 @@ namespace Notea.Modules.Daily.ViewModels
                 {
                     SelectedDate = date;
 
+                    // ===== Phase 1: 기본적인 데이터 로딩 (그대로 유지) =====
+
                     // 1. Comment 로딩 (가장 안전)
                     try
                     {
                         Comment = _db.GetCommentByDate(date);
-                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] Comment 로드 완료: '{Comment}'");
+                        System.Diagnostics.Debug.WriteLine($"[Phase2] Comment 로드 완료: '{Comment}'");
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] Comment 로드 오류: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[Phase2] Comment 로드 오류: {ex.Message}");
                         Comment = string.Empty;
                     }
 
-                    // 2. TodoList 로딩
+                    // 2. TodoList 로딩 (두 번째로 안전)
                     try
                     {
-                        var todos = _db.GetTodosByDate(date);
+                        // 기존 이벤트 해제
+                        foreach (var todo in TodoList)
+                        {
+                            todo.PropertyChanged -= Todo_PropertyChanged;
+                        }
+
                         TodoList.Clear();
+                        var todos = _db.GetTodosByDate(date);
+
+                        System.Diagnostics.Debug.WriteLine($"[Phase2] DB에서 {todos.Count}개 Todo 로드됨");
 
                         foreach (var todo in todos)
                         {
-                            // PropertyChanged 이벤트 안전하게 구독
-                            todo.PropertyChanged += (s, e) =>
-                            {
-                                try
-                                {
-                                    if (e.PropertyName == nameof(TodoItem.IsCompleted))
-                                    {
-                                        _db.UpdateTodoCompletion(todo.Id, todo.IsCompleted);
-                                    }
-                                }
-                                catch (Exception todoEx)
-                                {
-                                    System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] Todo 업데이트 오류: {todoEx.Message}");
-                                }
-                            };
-
+                            todo.PropertyChanged += Todo_PropertyChanged;
                             TodoList.Add(todo);
                         }
 
-                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] TodoList 로드 완료: {TodoList.Count}개");
+                        System.Diagnostics.Debug.WriteLine($"[Phase2] TodoList에 {TodoList.Count}개 항목 추가됨");
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] TodoList 로드 오류: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[Phase2] TodoList 로드 오류: {ex.Message}");
                     }
 
-                    // 3. 과목 데이터는 공유 컬렉션이 없는 경우에만 로드
-                    if (Subjects == null || Subjects.Count == 0)
+                    // ===== Phase 2: Subject 데이터 로딩 활성화 =====
+                    try
                     {
-                        System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 공유 데이터 없음 - 직접 과목 로드");
-                        LoadDailySubjectsSafe(date);
+                        System.Diagnostics.Debug.WriteLine("[Phase2] Subject 데이터 로딩 시작");
+
+                        // 오늘 할 일 과목 리스트 불러오기
+                        LoadDailySubjects(date);
+
+                        System.Diagnostics.Debug.WriteLine("[Phase2] Subject 데이터 로딩 완료");
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 공유 데이터 존재 - 과목 로드 스킵");
+                        System.Diagnostics.Debug.WriteLine($"[Phase2] Subject 로딩 오류: {ex.Message}");
+                        // Subject 로딩 실패해도 나머지 기능은 동작하도록 함
                     }
 
                     _hasLoadedOnce = true;
-                    System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] LoadDailyDataSafe 완료");
+                    System.Diagnostics.Debug.WriteLine("[Phase2] 전체 데이터 로딩 완료 (Comment + TodoList + Subjects)");
                 }
                 finally
                 {
@@ -204,10 +205,27 @@ namespace Notea.Modules.Daily.ViewModels
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] LoadDailyDataSafe 전체 오류: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[Phase2] LoadDailyDataSafe 전체 오류: {ex.Message}");
                 _isLoadingFromDatabase = false;
             }
         }
+
+        private void Todo_PropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(TodoItem.IsCompleted) && sender is TodoItem todo)
+            {
+                try
+                {
+                    _db.UpdateTodoCompletion(todo.Id, todo.IsCompleted);
+                    System.Diagnostics.Debug.WriteLine($"[Phase1] Todo 완료 상태 업데이트: ID={todo.Id}, Completed={todo.IsCompleted}");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Phase1] Todo 업데이트 오류: {ex.Message}");
+                }
+            }
+        }
+
 
         private void LoadDailySubjectsSafe(DateTime date)
         {
@@ -451,47 +469,10 @@ namespace Notea.Modules.Daily.ViewModels
 
         public void LoadDailyData(DateTime date)
         {
-            // 🆕 같은 날짜에 대한 중복 로딩 방지
-            if (SelectedDate.Date == date.Date && _hasLoadedOnce)
-            {
-                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 같은 날짜 데이터 이미 로드됨. 스킵.");
-                return;
-            }
+            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] Phase 1 LoadDailyData 호출 - 날짜: {date.ToShortDateString()}");
 
-            SelectedDate = date;
-
-            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] LoadDailyData 호출됨. 날짜: {date.ToShortDateString()}");
-
-            // Comment 불러오기
-            Comment = _db.GetCommentByDate(date);
-            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] Comment 로드됨: '{Comment}'");
-
-            // TodoList 불러오기
-            var todos = _db.GetTodosByDate(date);
-            TodoList.Clear();
-            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 투두 항목 {todos.Count}개 DB에서 로드됨.");
-
-            foreach (var todo in todos)
-            {
-                //  IsCompleted 변경될 때마다 DB 반영
-                todo.PropertyChanged += (s, e) =>
-                {
-                    if (e.PropertyName == nameof(TodoItem.IsCompleted))
-                    {
-                        _db.UpdateTodoCompletion(todo.Id, todo.IsCompleted);
-                    }
-                };
-
-                TodoList.Add(todo);
-            }
-            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] TodoList에 {TodoList.Count}개 항목 추가됨.");
-
-            // 오늘 할 일 과목 리스트 불러오기 (한 번만)
-            if (!_hasLoadedOnce)
-            {
-                LoadDailySubjects(date);
-                _hasLoadedOnce = true;
-            }
+            // Phase 1에서는 LoadDailyDataSafe로 리다이렉트
+            LoadDailyDataSafe(date);
         }
 
         private void LoadDailySubjects(DateTime date)

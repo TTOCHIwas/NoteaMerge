@@ -150,12 +150,10 @@ namespace Notea.ViewModels
             // ✅ 수정: 데이터베이스 중복 초기화 제거
             try
             {
-
-                // 2. 저장된 데이터 복원 (지연 로딩으로 변경)
                 RestoreDailySubjects();
+                // SetupProgressUpdateSystem(); // 🚨 이 줄도 임시 주석 처리
 
-                // 3. 진행률 업데이트 시스템 설정
-                SetupProgressUpdateSystem();
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 초기화 완료 (데이터 로딩 스킵됨)");
             }
             catch (Exception ex)
             {
