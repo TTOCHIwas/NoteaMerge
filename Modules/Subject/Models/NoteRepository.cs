@@ -1,4 +1,4 @@
-﻿using Microsoft.Data.Sqlite;
+﻿using System.Data.SQLite;
 using Notea.Helpers;
 using Notea.Modules.Subject.ViewModels;
 using System;
@@ -14,12 +14,12 @@ namespace Notea.Modules.Subject.Models
     {
         public class Transaction : IDisposable
         {
-            private SqliteConnection _connection;
-            private SqliteTransaction _transaction;
-            public SqliteConnection Connection => _connection;
-            public SqliteTransaction SqliteTransaction => _transaction;
+            private SQLiteConnection _connection;
+            private SQLiteTransaction _transaction;
+            public SQLiteConnection Connection => _connection;
+            public SQLiteTransaction SqliteTransaction => _transaction;
 
-            public Transaction(SqliteConnection connection, SqliteTransaction transaction)
+            public Transaction(SQLiteConnection connection, SQLiteTransaction transaction)
             {
                 _connection = connection;
                 _transaction = transaction;
@@ -36,7 +36,7 @@ namespace Notea.Modules.Subject.Models
 
         public static Transaction BeginTransaction()
         {
-            var conn = new SqliteConnection(GetConnectionString());
+            var conn = new SQLiteConnection(GetConnectionString());
             conn.Open();
             var trans = conn.BeginTransaction();
             return new Transaction(conn, trans);
@@ -66,8 +66,8 @@ namespace Notea.Modules.Subject.Models
                     level = detectedLevel;
                 }
 
-                SqliteConnection conn;
-                SqliteTransaction trans = null;
+                SQLiteConnection conn;
+                SQLiteTransaction trans = null;
                 bool shouldDispose = false;
 
                 if (transaction != null)
@@ -77,7 +77,7 @@ namespace Notea.Modules.Subject.Models
                 }
                 else
                 {
-                    conn = new SqliteConnection(GetConnectionString());
+                    conn = new SQLiteConnection     (GetConnectionString());
                     conn.Open();
                     shouldDispose = true;
                 }
@@ -152,7 +152,7 @@ namespace Notea.Modules.Subject.Models
         // DB 경로는 DatabaseHelper에서 관리
         private static string GetConnectionString()
         {
-            return $"Data Source={DatabaseHelper.GetDatabasePath()};";
+            return Notea.Database.DatabaseInitializer.GetConnectionString();
         }
 
         public static List<NoteCategory> LoadNotesBySubject(int subjectId)
@@ -226,7 +226,7 @@ namespace Notea.Modules.Subject.Models
         {
             try
             {
-                using var conn = new SqliteConnection(GetConnectionString());
+                using var conn = new SQLiteConnection(GetConnectionString());
                 conn.Open();
                 using var transaction = conn.BeginTransaction();
 
@@ -319,7 +319,7 @@ namespace Notea.Modules.Subject.Models
         {
             try
             {
-                using var conn = new SqliteConnection(GetConnectionString());
+                using var conn = new SQLiteConnection(GetConnectionString());
                 conn.Open();
                 using var transaction = conn.BeginTransaction();
 
@@ -405,8 +405,8 @@ namespace Notea.Modules.Subject.Models
 
             try
             {
-                SqliteConnection conn;
-                SqliteTransaction trans = null;
+                SQLiteConnection conn;
+                SQLiteTransaction trans = null;
                 bool shouldDispose = false;
 
                 if (transaction != null)
@@ -416,7 +416,7 @@ namespace Notea.Modules.Subject.Models
                 }
                 else
                 {
-                    conn = new SqliteConnection(GetConnectionString());
+                    conn = new SQLiteConnection(GetConnectionString());
                     conn.Open();
                     shouldDispose = true;
                 }
@@ -463,7 +463,7 @@ namespace Notea.Modules.Subject.Models
 
             try
             {
-                using var conn = new SqliteConnection(GetConnectionString());
+                using var conn = new SQLiteConnection(GetConnectionString());
                 conn.Open();
 
                 using var transaction = conn.BeginTransaction();
@@ -532,8 +532,8 @@ namespace Notea.Modules.Subject.Models
                     displayOrder = GetNextDisplayOrder(subjectId);
                 }
 
-                SqliteConnection conn;
-                SqliteTransaction trans = null;
+                SQLiteConnection conn;
+                SQLiteTransaction trans = null;
                 bool shouldDispose = false;
 
                 if (transaction != null)
@@ -543,7 +543,7 @@ namespace Notea.Modules.Subject.Models
                 }
                 else
                 {
-                    conn = new SqliteConnection(GetConnectionString());
+                    conn = new SQLiteConnection(GetConnectionString());
                     conn.Open();
                     shouldDispose = true;
                 }
@@ -609,8 +609,8 @@ namespace Notea.Modules.Subject.Models
 
             try
             {
-                SqliteConnection conn;
-                SqliteTransaction trans = null;
+                SQLiteConnection conn;
+                SQLiteTransaction trans = null;
                 bool shouldDispose = false;
 
                 if (transaction != null)
@@ -620,7 +620,7 @@ namespace Notea.Modules.Subject.Models
                 }
                 else
                 {
-                    conn = new SqliteConnection(GetConnectionString());
+                    conn = new SQLiteConnection(GetConnectionString());
                     conn.Open();
                     shouldDispose = true;
                 }
@@ -666,8 +666,8 @@ namespace Notea.Modules.Subject.Models
         {
             try
             {
-                SqliteConnection conn;
-                SqliteTransaction trans = null;
+                SQLiteConnection conn;
+                SQLiteTransaction trans = null;
                 bool shouldDispose = false;
 
                 if (transaction != null)
@@ -677,7 +677,7 @@ namespace Notea.Modules.Subject.Models
                 }
                 else
                 {
-                    conn = new SqliteConnection(GetConnectionString());
+                    conn = new SQLiteConnection(GetConnectionString());
                     conn.Open();
                     shouldDispose = true;
                 }
@@ -715,8 +715,8 @@ namespace Notea.Modules.Subject.Models
         {
             try
             {
-                SqliteConnection conn;
-                SqliteTransaction trans = null;
+                SQLiteConnection conn;
+                SQLiteTransaction trans = null;
                 bool shouldDispose = false;
 
                 if (transaction != null)
@@ -726,7 +726,7 @@ namespace Notea.Modules.Subject.Models
                 }
                 else
                 {
-                    conn = new SqliteConnection(GetConnectionString());
+                    conn = new SQLiteConnection(GetConnectionString());
                     conn.Open();
                     shouldDispose = true;
                 }
@@ -841,7 +841,7 @@ namespace Notea.Modules.Subject.Models
         /// </summary>
         public static void SaveLinesInTransaction(List<MarkdownLineViewModel> lines)
         {
-            using var conn = new SqliteConnection(GetConnectionString());
+            using var conn = new SQLiteConnection(GetConnectionString());
             conn.Open();
 
             using var transaction = conn.BeginTransaction();

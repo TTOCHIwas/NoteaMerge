@@ -14,6 +14,24 @@ namespace Notea.Modules.Daily.ViewModels
             set => SetProperty(ref _subjectName, value);
         }
 
+
+
+        // 실시간 진행률 속성 (SubjectProgressViewModel.cs에 추가)
+        private double _realTimeProgressPercentage = 0.0;
+        public double RealTimeProgressPercentage
+        {
+            get => _realTimeProgressPercentage;
+            set => SetProperty(ref _realTimeProgressPercentage, value);
+        }
+
+        // 실시간 학습시간 표시 속성
+        private string _realTimeStudyTimeDisplay = "00:00:00";
+        public string RealTimeStudyTimeDisplay
+        {
+            get => _realTimeStudyTimeDisplay;
+            set => SetProperty(ref _realTimeStudyTimeDisplay, value);
+        }
+
         // ✅ 진행률은 실시간으로 계산 (DailySubject에 의존하지 않음)
         public double ActualProgress => CalculateTimeBasedProgress();
 
@@ -134,10 +152,16 @@ namespace Notea.Modules.Daily.ViewModels
         public double ProgressWidth => MaxWidth * ActualProgress;
 
         // ✅ 실제 측정된 진행률 퍼센트 텍스트
-        public string ProgressPercentText => $"{ActualProgress:P0}";
+        public string ProgressPercentText
+        {
+            get => $"{ActualProgress:P0}";
+        }
 
         // ✅ Tooltip에 실제 진행률 표시
-        public string Tooltip => $"{SubjectName}: {ActualProgress:P1} - {StudyTimeText}";
+        public string Tooltip
+        {
+            get => $"{SubjectName}: {ProgressPercentText} - {StudyTimeText}";
+        }
 
         // TopicGroup 리스트 (드래그 앤 드롭으로 추가된 분류들)
         public ObservableCollection<TopicGroupViewModel> TopicGroups { get; set; } = new();

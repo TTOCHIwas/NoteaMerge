@@ -34,15 +34,13 @@ namespace Notea.Modules.Common.Helpers
 
         private DatabaseHelper()
         {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            _dbPath = Path.Combine(baseDir, "notea.db");
+            _dbPath = Notea.Database.DatabaseInitializer.GetDatabasePath();
             Initialize();
         }
 
         public SQLiteConnection GetConnection()
         {
-            var connectionString = $"Data Source={_dbPath};Version=3;Pooling=true;Max Pool Size=100;Timeout=30;Journal Mode=WAL;";
-            return new SQLiteConnection(connectionString);
+            return new SQLiteConnection(Notea.Database.DatabaseInitializer.GetConnectionString());
         }
 
         public void Initialize()
@@ -71,135 +69,24 @@ namespace Notea.Modules.Common.Helpers
                         conn.Open();
 
                         using var pragmaCmd = conn.CreateCommand();
-                        pragmaCmd.CommandText = "PRAGMA journal_mode=WAL; PRAGMA synchronous=NORMAL; PRAGMA cache_size=10000; PRAGMA temp_store=memory;";
+                        pragmaCmd.CommandText = "PRAGMA foreign_keys=ON;";
                         pragmaCmd.ExecuteNonQuery();
 
-                        var cmd = conn.CreateCommand();
-
-                        // Note 테이블
-                        cmd.CommandText = @"
-                            CREATE TABLE IF NOT EXISTS Note (
-                                NoteId INTEGER PRIMARY KEY AUTOINCREMENT,
-                                Content TEXT NOT NULL,
-                                CreatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                UpdatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                            );";
-                        cmd.ExecuteNonQuery();
-
-                        // Comment 테이블
-                        cmd.CommandText = @"
-                            CREATE TABLE IF NOT EXISTS Comment (
-                                Date TEXT PRIMARY KEY,
-                                Text TEXT NOT NULL
-                            );";
-                        cmd.ExecuteNonQuery();
-
-                        // Todo 테이블
-                        cmd.CommandText = @"
-                            CREATE TABLE IF NOT EXISTS Todo (
-                                Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                Date TEXT NOT NULL,
-                                Title TEXT NOT NULL,
-                                IsCompleted INTEGER NOT NULL DEFAULT 0
-                            );";
-                        cmd.ExecuteNonQuery();
-
-                        // ✅ Subject 테이블 (초단위)
-                        cmd.CommandText = @"
-                            CREATE TABLE IF NOT EXISTS Subject (
-                                Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                Name TEXT NOT NULL UNIQUE,
-                                TotalStudyTimeSeconds INTEGER NOT NULL DEFAULT 0
-                            );";
-                        cmd.ExecuteNonQuery();
-
-                        // ✅ TopicGroup 테이블 (초단위)
-                        cmd.CommandText = @"
-                            CREATE TABLE IF NOT EXISTS TopicGroup (
-                                Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                SubjectId INTEGER NOT NULL,
-                                Name TEXT NOT NULL,
-                                TotalStudyTimeSeconds INTEGER NOT NULL DEFAULT 0,
-                                FOREIGN KEY (SubjectId) REFERENCES Subject(Id) ON DELETE CASCADE
-                            );";
-                        cmd.ExecuteNonQuery();
-
-                        // TopicItem 테이블
-                        cmd.CommandText = @"
-                            CREATE TABLE IF NOT EXISTS TopicItem (
-                                Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                TopicGroupId INTEGER NOT NULL,
-                                Content TEXT NOT NULL,
-                                CreatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                                FOREIGN KEY (TopicGroupId) REFERENCES TopicGroup(Id) ON DELETE CASCADE
-                            );";
-                        cmd.ExecuteNonQuery();
-
-                        // StudySession 테이블
-                        cmd.CommandText = @"
-                            CREATE TABLE IF NOT EXISTS StudySession (
-                                Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                StartTime TEXT NOT NULL,
-                                EndTime TEXT NOT NULL,
-                                DurationSeconds INTEGER NOT NULL,
-                                Date TEXT NOT NULL,
-                                CreatedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-                            );";
-                        cmd.ExecuteNonQuery();
-
-                        // ✅ DailySubject 테이블 (초단위)
-                        cmd.CommandText = @"
-                            CREATE TABLE IF NOT EXISTS DailySubject (
-                                Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                Date TEXT NOT NULL,
-                                SubjectName TEXT NOT NULL,
-                                Progress REAL NOT NULL DEFAULT 0.0,
-                                StudyTimeSeconds INTEGER NOT NULL DEFAULT 0,
-                                DisplayOrder INTEGER NOT NULL DEFAULT 0
-                            );";
-                        cmd.ExecuteNonQuery();
-
-                        // ✅ DailyTopicGroup 테이블 (초단위)
-                        cmd.CommandText = @"
-                            CREATE TABLE IF NOT EXISTS DailyTopicGroup (
-                                Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                Date TEXT NOT NULL,
-                                SubjectName TEXT NOT NULL,
-                                GroupTitle TEXT NOT NULL,
-                                TotalStudyTimeSeconds INTEGER NOT NULL DEFAULT 0,
-                                IsCompleted INTEGER NOT NULL DEFAULT 0
-                            );";
-                        cmd.ExecuteNonQuery();
-
-                        // ✅ DailyTopicItem 테이블 (초단위)
-                        cmd.CommandText = @"
-                            CREATE TABLE IF NOT EXISTS DailyTopicItem (
-                                Id INTEGER PRIMARY KEY AUTOINCREMENT,
-                                Date TEXT NOT NULL,
-                                SubjectName TEXT NOT NULL,
-                                GroupTitle TEXT NOT NULL,
-                                TopicName TEXT NOT NULL,
-                                Progress REAL NOT NULL DEFAULT 0.0,
-                                StudyTimeSeconds INTEGER NOT NULL DEFAULT 0,
-                                IsCompleted INTEGER NOT NULL DEFAULT 0
-                            );";
-                        cmd.ExecuteNonQuery();
-
-                        System.Diagnostics.Debug.WriteLine("[DB] 데이터베이스 초기화 완료");
+                        System.Diagnostics.Debug.WriteLine("[DB] 연결 테스트 및 PRAGMA 설정 완료");
                         break;
                     }
                     catch (SQLiteException ex) when (ex.ErrorCode == 5)
                     {
                         retryCount++;
-                        System.Diagnostics.Debug.WriteLine($"[DB] 데이터베이스 락, 재시도 {retryCount}/{maxRetries}: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[DB] 연결 재시도 {retryCount}/{maxRetries}: {ex.Message}");
 
                         if (retryCount >= maxRetries)
                         {
-                            System.Diagnostics.Debug.WriteLine("[DB] 데이터베이스 락 해결 실패, 프로그램 종료");
-                            throw new Exception("데이터베이스에 접근할 수 없습니다. 다른 프로그램에서 사용 중일 수 있습니다.");
+                            System.Diagnostics.Debug.WriteLine("[DB] 연결 실패");
+                            throw new Exception("데이터베이스에 연결할 수 없습니다.");
                         }
 
-                        System.Threading.Thread.Sleep(1000 * retryCount);
+                        System.Threading.Thread.Sleep(100);
                     }
                     catch (Exception ex)
                     {
@@ -1250,29 +1137,57 @@ namespace Notea.Modules.Common.Helpers
                         using var conn = GetConnection();
                         conn.Open();
 
-                        // ⚠️ 현재는 StudySession이 과목별로 분류되어 있지 않음
-                        // 추후 과목페이지 구현시 StudySession에 SubjectName 컬럼 추가 필요
-
-                        // 임시 방법: DailySubject가 있으면 그 값, 없으면 0
                         using var cmd = conn.CreateCommand();
-                        cmd.CommandText = "SELECT COALESCE(StudyTimeSeconds, 0) FROM DailySubject WHERE Date = @date AND SubjectName = @subjectName";
+                        cmd.CommandText = @"
+                    SELECT COALESCE(SUM(DurationSeconds), 0) 
+                    FROM SubjectFocusSession 
+                    WHERE Date = @date AND SubjectName = @subjectName AND IsActive = 0";
                         cmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
                         cmd.Parameters.AddWithValue("@subjectName", subjectName);
 
                         var result = cmd.ExecuteScalar();
-                        int studyTimeSeconds = Convert.ToInt32(result);
-
-                        System.Diagnostics.Debug.WriteLine($"[DB] 과목 '{subjectName}' 실제 시간: {studyTimeSeconds}초");
-                        return studyTimeSeconds;
+                        return Convert.ToInt32(result);
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[DB] 과목 실제 시간 조회 오류: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[DB] 과목 학습시간 조회 오류: {ex.Message}");
                         return 0;
                     }
                 }
             });
         }
+
+        public int GetCategoryActualStudyTimeSeconds(DateTime date, int categoryId)
+        {
+            return ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = @"
+                    SELECT COALESCE(TotalSeconds, 0) 
+                    FROM CategoryStudyTime 
+                    WHERE Date = @date AND CategoryId = @categoryId";
+                        cmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
+                        cmd.Parameters.AddWithValue("@categoryId", categoryId);
+
+                        var result = cmd.ExecuteScalar();
+                        return Convert.ToInt32(result ?? 0);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] 카테고리 학습시간 조회 오류: {ex.Message}");
+                        return 0;
+                    }
+                }
+            });
+        }
+
         // ✅ 향후 확장: StudySession 테이블에 SubjectName 추가시 사용할 메소드
         public int GetSubjectActualStudyTimeSecondsFromSessions(DateTime date, string subjectName)
         {
@@ -1678,6 +1593,274 @@ namespace Notea.Modules.Common.Helpers
                 }
             });
         }
+
+        public void StartSubjectFocusSession(string subjectName, int? categoryId = null)
+        {
+            ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+
+                        // 기존 활성 세션이 있으면 종료
+                        EndActiveSubjectFocusSessions(conn, subjectName);
+
+                        // 새 세션 시작
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = @"
+                    INSERT INTO SubjectFocusSession 
+                    (SubjectName, CategoryId, StartTime, Date, IsActive)
+                    VALUES (@subjectName, @categoryId, @startTime, @date, 1)";
+
+                        cmd.Parameters.AddWithValue("@subjectName", subjectName);
+                        cmd.Parameters.AddWithValue("@categoryId", categoryId ?? (object)DBNull.Value);
+                        cmd.Parameters.AddWithValue("@startTime", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                        cmd.Parameters.AddWithValue("@date", DateTime.Today.ToString("yyyy-MM-dd"));
+
+                        cmd.ExecuteNonQuery();
+                        System.Diagnostics.Debug.WriteLine($"[DB] 과목 포커스 세션 시작: {subjectName}, 카테고리: {categoryId}");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] 과목 포커스 세션 시작 오류: {ex.Message}");
+                    }
+                }
+            });
+        }
+        public void EndSubjectFocusSession(string subjectName)
+        {
+            ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+
+                        EndActiveSubjectFocusSessions(conn, subjectName);
+                        System.Diagnostics.Debug.WriteLine($"[DB] 과목 포커스 세션 종료: {subjectName}");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] 과목 포커스 세션 종료 오류: {ex.Message}");
+                    }
+                }
+            });
+        }
+        private void EndActiveSubjectFocusSessions(SQLiteConnection conn, string subjectName)
+        {
+            using var cmd = conn.CreateCommand();
+            cmd.CommandText = @"
+        UPDATE SubjectFocusSession 
+        SET EndTime = @endTime, 
+            DurationSeconds = ROUND((julianday(@endTime) - julianday(StartTime)) * 86400),
+            IsActive = 0
+        WHERE SubjectName = @subjectName AND IsActive = 1";
+
+            cmd.Parameters.AddWithValue("@subjectName", subjectName);
+            cmd.Parameters.AddWithValue("@endTime", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+
+            cmd.ExecuteNonQuery();
+        }
+
+        public void StartCategoryFocus(int categoryId, string subjectName)
+        {
+            ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+
+                        // 현재 활성 카테고리의 LastActiveTime 업데이트
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = @"
+                    INSERT OR REPLACE INTO CategoryStudyTime 
+                    (CategoryId, SubjectName, Date, TotalSeconds, LastActiveTime)
+                    VALUES (
+                        @categoryId, 
+                        @subjectName, 
+                        @date,
+                        COALESCE((SELECT TotalSeconds FROM CategoryStudyTime WHERE CategoryId = @categoryId AND Date = @date), 0),
+                        @currentTime
+                    )";
+
+                        cmd.Parameters.AddWithValue("@categoryId", categoryId);
+                        cmd.Parameters.AddWithValue("@subjectName", subjectName);
+                        cmd.Parameters.AddWithValue("@date", DateTime.Today.ToString("yyyy-MM-dd"));
+                        cmd.Parameters.AddWithValue("@currentTime", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                        cmd.ExecuteNonQuery();
+                        System.Diagnostics.Debug.WriteLine($"[DB] 카테고리 포커스 시작: {categoryId} in {subjectName}");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] 카테고리 포커스 시작 오류: {ex.Message}");
+                    }
+                }
+            });
+        }
+
+        public void IncrementCategoryStudyTime(int categoryId, string subjectName)
+        {
+            ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = @"
+                    INSERT OR REPLACE INTO CategoryStudyTime 
+                    (CategoryId, SubjectName, Date, TotalSeconds, LastActiveTime)
+                    VALUES (
+                        @categoryId, 
+                        @subjectName, 
+                        @date,
+                        COALESCE((SELECT TotalSeconds FROM CategoryStudyTime WHERE CategoryId = @categoryId AND Date = @date), 0) + 1,
+                        @currentTime
+                    )";
+
+                        cmd.Parameters.AddWithValue("@categoryId", categoryId);
+                        cmd.Parameters.AddWithValue("@subjectName", subjectName);
+                        cmd.Parameters.AddWithValue("@date", DateTime.Today.ToString("yyyy-MM-dd"));
+                        cmd.Parameters.AddWithValue("@currentTime", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                        cmd.ExecuteNonQuery();
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] 카테고리 학습시간 증가 오류: {ex.Message}");
+                    }
+                }
+            });
+        }
+
+        public (DateTime? dday, int daysLeft) GetNextDDay()
+        {
+            lock (_lockObject)
+            {
+                try
+                {
+                    using var conn = GetConnection();
+                    conn.Open();
+
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText = @"
+                SELECT startDate 
+                FROM monthlyEvent 
+                WHERE isDday = 1 
+                  AND startDate > date('now')
+                ORDER BY startDate ASC 
+                LIMIT 1";
+
+                    var result = cmd.ExecuteScalar();
+                    if (result != null && DateTime.TryParse(result.ToString(), out DateTime dDay))
+                    {
+                        int daysLeft = (dDay.Date - DateTime.Today).Days;
+                        return (dDay, daysLeft);
+                    }
+                    return (null, 0);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DB] D-Day 조회 오류: {ex.Message}");
+                    return (null, 0);
+                }
+            }
+        }
+
+        public double GetSubjectProgressPercentage(string subjectName, DateTime date)
+        {
+            return ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+
+                        // 전체 학습시간 조회 (타이머 기반)
+                        using var totalCmd = conn.CreateCommand();
+                        totalCmd.CommandText = "SELECT COALESCE(SUM(DurationSeconds), 0) FROM StudySession WHERE Date = @date";
+                        totalCmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
+                        var totalSeconds = Convert.ToInt32(totalCmd.ExecuteScalar());
+
+                        if (totalSeconds == 0) return 0.0;
+
+                        // 과목별 학습시간 조회 (포커스 세션 기반)
+                        using var subjectCmd = conn.CreateCommand();
+                        subjectCmd.CommandText = @"
+                    SELECT COALESCE(SUM(DurationSeconds), 0) 
+                    FROM SubjectFocusSession 
+                    WHERE Date = @date AND SubjectName = @subjectName AND IsActive = 0";
+                        subjectCmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
+                        subjectCmd.Parameters.AddWithValue("@subjectName", subjectName);
+                        var subjectSeconds = Convert.ToInt32(subjectCmd.ExecuteScalar());
+
+                        return (double)subjectSeconds / totalSeconds * 100.0;
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] 과목 진행률 계산 오류: {ex.Message}");
+                        return 0.0;
+                    }
+                }
+            });
+        }
+
+        public double GetCategoryProgressPercentage(int categoryId, DateTime date)
+        {
+            return ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+
+                        // 전체 학습시간 조회 (타이머 기반)
+                        using var totalCmd = conn.CreateCommand();
+                        totalCmd.CommandText = "SELECT COALESCE(SUM(DurationSeconds), 0) FROM StudySession WHERE Date = @date";
+                        totalCmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
+                        var totalSeconds = Convert.ToInt32(totalCmd.ExecuteScalar());
+
+                        if (totalSeconds == 0) return 0.0;
+
+                        // 카테고리별 학습시간 조회
+                        using var categoryCmd = conn.CreateCommand();
+                        categoryCmd.CommandText = @"
+                    SELECT COALESCE(TotalSeconds, 0) 
+                    FROM CategoryStudyTime 
+                    WHERE CategoryId = @categoryId AND Date = @date";
+                        categoryCmd.Parameters.AddWithValue("@categoryId", categoryId);
+                        categoryCmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
+                        var categorySeconds = Convert.ToInt32(categoryCmd.ExecuteScalar());
+
+                        return (double)categorySeconds / totalSeconds * 100.0;
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] 카테고리 진행률 계산 오류: {ex.Message}");
+                        return 0.0;
+                    }
+                }
+            });
+        }
+
+
+
 
         // IDisposable 구현 (메모리 누수 방지)
         public void Dispose()

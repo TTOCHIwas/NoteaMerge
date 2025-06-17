@@ -21,11 +21,15 @@ namespace Notea.Modules.Common.ViewModels
         private DateTime _sessionStartTime;   // 세션 시작 시간
 
         // ✅ 타이머 상태 이벤트 (추후 과목페이지/분류그룹에서 구독할 예정)
-        public event Action<bool> TimerStatusChanged;
+        //public event Action<bool> TimerStatusChanged;
+        public event Action ProgressUpdateRequested;
 
         // ✅ 현재 활성 과목/분류 정보 (추후 과목페이지에서 설정할 예정)
         private string _currentActiveSubject = string.Empty;
         private string _currentActiveTopicGroup = string.Empty;
+
+        private int? _currentActiveCategoryId = null;
+        private string _currentActiveSubjectName = string.Empty;
 
         // ✅ 활성 과목/분류 설정 메소드 (추후 과목페이지에서 호출)
         public void SetActiveSubject(string subjectName, string topicGroup = "")
@@ -35,12 +39,29 @@ namespace Notea.Modules.Common.ViewModels
             System.Diagnostics.Debug.WriteLine($"[Timer] 활성 설정: 과목={subjectName}, 분류={topicGroup}");
         }
 
+       
+
         // ✅ 활성 과목/분류 해제 (페이지 나갈 때)
         public void ClearActiveSubject()
         {
             _currentActiveSubject = string.Empty;
             _currentActiveTopicGroup = string.Empty;
             System.Diagnostics.Debug.WriteLine($"[Timer] 활성 해제");
+        }
+
+        // 활성 카테고리 설정 메소드 (NoteEditorView에서 호출)
+        public void SetActiveCategory(int categoryId, string subjectName)
+        {
+            _currentActiveCategoryId = categoryId;
+            _currentActiveSubjectName = subjectName;
+            System.Diagnostics.Debug.WriteLine($"[Timer] 활성 카테고리 설정: CategoryId={categoryId}, Subject={subjectName}");
+        }
+
+        public void ClearActiveCategory()
+        {
+            _currentActiveCategoryId = null;
+            _currentActiveSubjectName = string.Empty;
+            System.Diagnostics.Debug.WriteLine($"[Timer] 활성 카테고리 해제");
         }
 
         // 총 학습 시간을 00:00:00 형식으로 표시 (실시간 업데이트 포함)
@@ -115,10 +136,29 @@ namespace Notea.Modules.Common.ViewModels
             _currentSessionTime = _currentSessionTime.Add(TimeSpan.FromSeconds(1));
             OnPropertyChanged(nameof(TotalStudyTimeDisplay));
 
-            // ✅ 활성 과목/분류 시간 증가 (추후 MainViewModel을 통해 호출)
-            if (_isRunning && !string.IsNullOrEmpty(_currentActiveSubject))
+            //// ✅ 활성 과목/분류 시간 증가 (추후 MainViewModel을 통해 호출)
+            //if (_isRunning && !string.IsNullOrEmpty(_currentActiveSubject))
+            //{
+            //    UpdateActiveSubjectTime();
+            //}
+
+            // ✅ 활성 카테고리 시간 증가 (새로 추가)
+            if (_isRunning && _currentActiveCategoryId.HasValue && !string.IsNullOrEmpty(_currentActiveSubjectName))
             {
-                UpdateActiveSubjectTime();
+                try
+                {
+                    var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                    dbHelper.IncrementCategoryStudyTime(_currentActiveCategoryId.Value, _currentActiveSubjectName);
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Timer] 카테고리 시간 증가 오류: {ex.Message}");
+                }
+            }
+
+            if (_currentSessionTime.TotalSeconds % 10 == 0)
+            {
+                ProgressUpdateRequested?.Invoke();
             }
         }
 
@@ -189,7 +229,7 @@ namespace Notea.Modules.Common.ViewModels
             OnPropertyChanged(nameof(IsTimerRunning));
 
             // ✅ 타이머 상태 변경 이벤트 발생
-            TimerStatusChanged?.Invoke(_isRunning);
+            ProgressUpdateRequested?.Invoke();
         }
 
         // 현재 세션을 DB에 저장

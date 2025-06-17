@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.Linq;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using Notea.Modules.Common.ViewModels;
 using Notea.Modules.Daily.ViewModels;
 using Notea.Modules.Daily.Views;
@@ -55,6 +56,24 @@ namespace Notea.ViewModels
                     _leftSidebarWidth = value;
                     OnPropertyChanged(nameof(LeftSidebarWidth));
                     OnPropertyChanged(nameof(IsSidebarCollapsed));
+                }
+            }
+        }
+
+        public string TotalStudyTimeDisplay
+        {
+            get
+            {
+                try
+                {
+                    var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                    int totalSeconds = dbHelper.GetTotalStudyTimeSeconds(DateTime.Today);
+                    var timeSpan = TimeSpan.FromSeconds(totalSeconds);
+                    return timeSpan.ToString(@"hh\:mm\:ss");
+                }
+                catch
+                {
+                    return "00:00:00";
                 }
             }
         }
@@ -121,6 +140,13 @@ namespace Notea.ViewModels
             HeaderContent = _dailyHeaderView;
             BodyContent = _dailyBodyView;
 
+            // ✅ 타이머 진행률 업데이트 이벤트 구독
+            var rightSidebarVM = FindRightSidebarViewModel();
+            if (rightSidebarVM != null)
+            {
+                rightSidebarVM.ProgressUpdateRequested += UpdateAllProgress;
+            }
+
             // Commands 초기화
             ToggleSidebarCommand = new RelayCommand(ToggleSidebar);
             ExpandSidebarCommand = new RelayCommand(() => LeftSidebarWidth = new GridLength(280));
@@ -153,6 +179,259 @@ namespace Notea.ViewModels
 
             // 🆕 앱 시작 시 저장된 Daily Subject 데이터 복원 (실제 측정 시간만)
             RestoreDailySubjects();
+        }
+
+        private void UpdateAllProgress()
+        {
+            try
+            {
+                var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                var today = DateTime.Today;
+
+                // 전체 학습시간 조회
+                int totalTodaySeconds = dbHelper.GetTotalStudyTimeSeconds(today);
+
+                foreach (var subject in SharedSubjectProgress)
+                {
+                    // 과목별 시간 및 진행률 업데이트
+                    int subjectSeconds = dbHelper.GetSubjectActualStudyTimeSeconds(today, subject.SubjectName);
+                    double subjectProgress = totalTodaySeconds > 0 ? (double)subjectSeconds / totalTodaySeconds : 0.0;
+                    subject.ActualProgress = Math.Min(1.0, subjectProgress);
+
+                    // ✅ 새로 추가: UI 속성들 새로고침
+                    subject.OnPropertyChanged(nameof(subject.ActualProgress));
+                    subject.OnPropertyChanged(nameof(subject.StudyTimeText));
+                    subject.OnPropertyChanged(nameof(subject.ProgressPercentText));
+                    subject.OnPropertyChanged(nameof(subject.Tooltip));
+
+                    // TopicGroups 업데이트
+                    foreach (var topicGroup in subject.TopicGroups)
+                    {
+                        if (topicGroup.CategoryId > 0)
+                        {
+                            int categorySeconds = dbHelper.GetCategoryActualStudyTimeSeconds(today, topicGroup.CategoryId);
+                            double categoryRatio = subjectSeconds > 0 ? (double)categorySeconds / subjectSeconds : 0.0;
+                            topicGroup.ProgressRatio = Math.Min(1.0, categoryRatio);
+
+                            // ✅ 새로 추가: 분류별 실시간 시간 표시 업데이트
+                            var categoryTimeSpan = TimeSpan.FromSeconds(categorySeconds);
+                            topicGroup.RealTimeStudyTimeDisplay = categoryTimeSpan.ToString(@"hh\:mm\:ss");
+                        }
+
+                        // ✅ 새로 추가: TopicGroup UI 속성들 새로고침
+                        topicGroup.OnPropertyChanged(nameof(topicGroup.ProgressRatio));
+                        topicGroup.OnPropertyChanged(nameof(topicGroup.RealTimeStudyTimeDisplay));
+                        topicGroup.OnPropertyChanged(nameof(topicGroup.ProgressRatioPercentText));
+                        topicGroup.OnPropertyChanged(nameof(topicGroup.StudyTimeTooltip));
+                    }
+                }
+
+                // ✅ 새로 추가: 전체 통계 새로고침 (DataContext ViewModel에서)
+                OnPropertyChanged(nameof(TotalStudyTimeDisplay));
+
+                System.Diagnostics.Debug.WriteLine($"[Progress] UI 업데이트 완료 - 총 시간: {TimeSpan.FromSeconds(totalTodaySeconds):hh\\:mm\\:ss}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Progress Error] UI 업데이트 실패: {ex.Message}");
+            }
+        }
+
+        private void RefreshTotalStatistics()
+        {
+            OnPropertyChanged(nameof(TotalStudyTimeDisplay));
+            // 기타 전체 통계 속성들도 새로고침
+        }
+
+        private void SetupProgressUpdateSystem()
+        {
+            try
+            {
+                // TopicGroups의 CategoryId 설정
+                SetTopicGroupCategoryIds();
+
+                // RightSidebarViewModel 찾기 및 이벤트 구독
+                // MainWindow 로드 후에 구독하도록 설정
+                if (Application.Current.MainWindow != null)
+                {
+                    Application.Current.MainWindow.Loaded += (s, e) => SubscribeToTimerEvents();
+                }
+                else
+                {
+                    // MainWindow가 아직 없으면 나중에 구독
+                    Application.Current.Activated += (s, e) => SubscribeToTimerEvents();
+                }
+
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 진행률 업데이트 시스템 설정 완료");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel Error] 진행률 업데이트 시스템 설정 실패: {ex.Message}");
+            }
+        }
+
+        private void SetTopicGroupCategoryIds()
+        {
+            try
+            {
+                foreach (var subject in SharedSubjectProgress)
+                {
+                    foreach (var topicGroup in subject.TopicGroups)
+                    {
+                        if (topicGroup.CategoryId == 0)
+                        {
+                            // GroupTitle로 CategoryId 조회
+                            int categoryId = GetCategoryIdByTitle(topicGroup.GroupTitle, subject.SubjectName);
+                            if (categoryId > 0)
+                            {
+                                topicGroup.CategoryId = categoryId;
+                                System.Diagnostics.Debug.WriteLine($"[Progress] TopicGroup '{topicGroup.GroupTitle}' CategoryId 설정: {categoryId}");
+                            }
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Progress Error] CategoryId 설정 실패: {ex.Message}");
+            }
+        }
+
+        private int GetCategoryIdByTitle(string groupTitle, string subjectName)
+        {
+            try
+            {
+                // subject 테이블에서 subjectId 조회 후 category 테이블에서 categoryId 조회
+                string query = $@"
+            SELECT c.categoryId 
+            FROM category c 
+            INNER JOIN subject s ON c.subJectId = s.subJectId 
+            WHERE c.title = '{groupTitle}' AND s.title = '{subjectName}'";
+
+                var result = Notea.Helpers.DatabaseHelper.ExecuteSelect(query);
+
+                if (result.Rows.Count > 0)
+                {
+                    return Convert.ToInt32(result.Rows[0]["categoryId"]);
+                }
+
+                return 0;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DB Error] CategoryId 조회 실패: {ex.Message}");
+                return 0;
+            }
+        }
+
+        private void SetupProgressUpdateSubscription()
+        {
+            try
+            {
+                // CategoryId 설정 (최초 1회)
+                SetTopicGroupCategoryIds();
+
+                // 타이머 ViewModel 찾기 및 이벤트 구독
+                // 실제 구현에서는 DI나 다른 방법으로 RightSidebarViewModel 참조 획득
+
+                // 예시 - MainWindow를 통한 참조 (실제 구현시 조정 필요)
+                if (Application.Current.MainWindow != null)
+                {
+                    // RightSidebar 찾기
+                    var rightSidebar = FindRightSidebarControl(Application.Current.MainWindow);
+                    if (rightSidebar?.DataContext is RightSidebarViewModel timerVM)
+                    {
+                        // 진행률 업데이트 이벤트 구독
+                        timerVM.ProgressUpdateRequested += UpdateAllProgress;
+                        System.Diagnostics.Debug.WriteLine("[Progress] 타이머 이벤트 구독 완료");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Progress Error] 이벤트 구독 설정 실패: {ex.Message}");
+            }
+        }
+
+        private Notea.Modules.Common.Views.RightSidebar FindRightSidebarControl(DependencyObject parent)
+        {
+            if (parent == null) return null;
+
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is Notea.Modules.Common.Views.RightSidebar rightSidebar)
+                    return rightSidebar;
+
+                var result = FindRightSidebarControl(child);
+                if (result != null)
+                    return result;
+            }
+            return null;
+        }
+
+        private void SubscribeToTimerEvents()
+        {
+            try
+            {
+                var rightSidebar = FindRightSidebarControl();
+                if (rightSidebar?.DataContext is RightSidebarViewModel timerVM)
+                {
+                    // 진행률 업데이트 이벤트 구독
+                    timerVM.ProgressUpdateRequested -= UpdateAllProgress; // 중복 구독 방지
+                    timerVM.ProgressUpdateRequested += UpdateAllProgress;
+
+                    System.Diagnostics.Debug.WriteLine("[MainViewModel] 타이머 이벤트 구독 완료");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[MainViewModel] RightSidebarViewModel을 찾을 수 없음");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel Error] 타이머 이벤트 구독 실패: {ex.Message}");
+            }
+        }
+
+        private Notea.Modules.Common.Views.RightSidebar FindRightSidebarControl()
+        {
+            if (Application.Current.MainWindow == null) return null;
+
+            return FindVisualChild<Notea.Modules.Common.Views.RightSidebar>(Application.Current.MainWindow);
+        }
+
+        private static T FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            if (parent == null) return null;
+
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+                if (child is T result)
+                    return result;
+
+                var childResult = FindVisualChild<T>(child);
+                if (childResult != null)
+                    return childResult;
+            }
+            return null;
+        }
+
+        // RightSidebarViewModel 찾기 헬퍼 메소드
+        private RightSidebarViewModel FindRightSidebarViewModel()
+        {
+            try
+            {
+                // 실제 구현은 현재 구조에 맞게 조정 필요
+                // 예시: MainWindow를 통해 RightSidebar 찾기
+                return null; // 실제 구현 필요
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] RightSidebarViewModel 찾기 실패: {ex.Message}");
+                return null;
+            }
         }
 
         // 🆕 저장된 Daily Subject 데이터 복원 메소드 (실제 측정 시간만)

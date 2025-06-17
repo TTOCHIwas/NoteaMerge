@@ -35,6 +35,34 @@ namespace Notea.Modules.Subjects.ViewModels
 
         public ICommand ToggleCommand { get; }
 
+        // 실시간 진행률 속성 (TopicGroupViewModel.cs에 추가)
+        private double _realTimeProgressPercentage = 0.0;
+        public double RealTimeProgressPercentage
+        {
+            get => _realTimeProgressPercentage;
+            set => SetProperty(ref _realTimeProgressPercentage, value);
+        }
+
+        // 실시간 학습시간 표시 속성
+        private string _realTimeStudyTimeDisplay = "00:00:00";
+        public string RealTimeStudyTimeDisplay
+        {
+            get => _realTimeStudyTimeDisplay;
+            set => SetProperty(ref _realTimeStudyTimeDisplay, value);
+        }
+        /// <summary>
+        /// 분류별 진행률 퍼센트 텍스트 (예: "8%")
+        /// </summary>
+        public string ProgressRatioPercentText => $"{ProgressRatio:P1}";
+
+        // 카테고리 ID 속성 (진행률 계산용)
+        private int _categoryId = 0;
+        public int CategoryId
+        {
+            get => _categoryId;
+            set => SetProperty(ref _categoryId, value);
+        }
+
         public TopicGroupViewModel()
         {
             ToggleCommand = new RelayCommand(() => IsExpanded = !IsExpanded);
@@ -152,14 +180,15 @@ namespace Notea.Modules.Subjects.ViewModels
 
         public string StudyTimeTooltip
         {
-            get
-            {
-                var totalSeconds = TodayStudyTimeSeconds; // 실시간 조회
-                var hours = totalSeconds / 3600;
-                var minutes = (totalSeconds % 3600) / 60;
-                var seconds = totalSeconds % 60;
-                return $"{hours:D2}:{minutes:D2}:{seconds:D2} ({ProgressRatio:P1})";
-            }
+            //get
+            //{
+            //    var totalSeconds = TodayStudyTimeSeconds; // 실시간 조회
+            //    var hours = totalSeconds / 3600;
+            //    var minutes = (totalSeconds % 3600) / 60;
+            //    var seconds = totalSeconds % 60;
+            //    return $"{hours:D2}:{minutes:D2}:{seconds:D2} ({ProgressRatio:P1})";
+            //}
+            get => $"{GroupTitle}: {ProgressRatioPercentText} - {RealTimeStudyTimeDisplay}";
         }
 
         // ✅ 분류에서 노션처럼 공부할 때 호출될 메소드 (추후 과목페이지에서 사용)

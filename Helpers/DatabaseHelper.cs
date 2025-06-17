@@ -7,90 +7,12 @@ namespace Notea.Helpers
 {
     public static class DatabaseHelper
     {
-        // 절대 경로 사용하여 DB 위치 고정
-        private static readonly string dbPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "data", "notea.db");
-        private static readonly string connectionString;
+        private static readonly string connectionString = Notea.Database.DatabaseInitializer.GetConnectionString();
 
         static DatabaseHelper()
         {
-            // data 폴더가 없으면 생성
-            var dataDir = Path.GetDirectoryName(dbPath);
-            if (!Directory.Exists(dataDir))
-            {
-                Directory.CreateDirectory(dataDir);
-            }
-
-            // 연결 문자열에 추가 옵션 설정
-            connectionString = $"Data Source={dbPath};Journal Mode=WAL;Busy Timeout=5000;";
-
-            // DB 파일이 없으면 생성
-            if (!File.Exists(dbPath))
-            {
-                InitializeDatabase();
-            }
-        }
-
-        // 데이터베이스 초기화
-        private static void InitializeDatabase()
-        {
-            using (var connection = new SQLiteConnection(connectionString))
-            {
-                connection.Open();
-
-                var command = connection.CreateCommand();
-                command.CommandText = @"
-                    -- 외래 키 활성화
-                    PRAGMA foreign_keys = ON;
-
-                    CREATE TABLE IF NOT EXISTS category
-                    (
-                        categoryId INTEGER PRIMARY KEY AUTOINCREMENT,
-                        di
-
-layOrder INTEGER DEFAULT 0,
-                        title      VARCHAR NOT NULL,
-                        subJectId  INTEGER NOT NULL,
-                        timeId     INTEGER NOT NULL,
-                        level      INTEGER DEFAULT 1,
-                        parentCategoryId INTEGER DEFAULT NULL,
-                        FOREIGN KEY (subJectId) REFERENCES subject (subJectId),
-                        FOREIGN KEY (timeId) REFERENCES time (timeId)
-                    );
-
-                    CREATE TABLE IF NOT EXISTS memo
-                    (
-                        noteId  INTEGER PRIMARY KEY AUTOINCREMENT,
-                        content text    NULL    
-                    );
-
-                    CREATE TABLE IF NOT EXISTS monthlyEvent
-                    (
-                        planId      INTEGER PRIMARY KEY AUTOINCREMENT,
-                        title       VARCHAR  NOT NULL,
-                        description VARCHAR  NULL    ,
-                        isDday      BOOLEAN  NOT NULL,
-                        startDate   DATETIME NOT NULL,
-                        endDate     DATETIME NOT NULL,
-                        color       VARCHAR  NULL    
-                    );
-
-                    CREATE TABLE IF NOT EXISTS noteContent
-                    (
-                        textId     INTEGER PRIMARY KEY AUTOINCREMENT,
-                        diNotealayOrder INTEGER DEFAULT 0,
-                        content    VARCHAR NULL    ,
-                        categoryId INTEGER NOT NULL,
-                        subJectId  INTEGER NOT NULL,
-                        FOREIGN KEY (categoryId) REFERENCES category (categoryId),
-                        FOREIGN KEY (subJectId) REFERENCES subject (subJectId)
-                    );
-
-                    ";
-
-                command.ExecuteNonQuery();
-
-                Console.WriteLine($"데이터베이스 초기화 완료: {dbPath}");
-            }
+            // DatabaseInitializer에서 이미 모든 초기화를 처리하므로 추가 작업 불필요
+            Console.WriteLine($"[Helpers.DatabaseHelper] 연결 문자열 설정 완료");
         }
 
         // 연결 테스트용 메서드
@@ -101,14 +23,12 @@ layOrder INTEGER DEFAULT 0,
                 using (var connection = new SQLiteConnection(connectionString))
                 {
                     connection.Open();
-                    Console.WriteLine($"DB 연결 성공: {dbPath}");
                     return true;
                 }
             }
             catch (Exception ex)
             {
                 Console.WriteLine($"DB 연결 실패: {ex.Message}");
-                Console.WriteLine($"시도한 경로: {dbPath}");
                 return false;
             }
         }
@@ -172,48 +92,6 @@ layOrder INTEGER DEFAULT 0,
             }
 
             return result;
-        }
-
-        public static void UpdateSchemaForHeadingLevel()
-        {
-            try
-            {
-                // category 테이블에 level 컬럼 추가 (없으면)
-                string checkLevelColumn = @"
-            SELECT COUNT(*) as count 
-            FROM pragma_table_info('category') 
-            WHERE name='level'";
-
-                var result = ExecuteSelect(checkLevelColumn);
-                if (result.Rows.Count > 0 && Convert.ToInt32(result.Rows[0]["count"]) == 0)
-                {
-                    string addLevelColumn = @"
-                ALTER TABLE category ADD COLUMN level INTEGER DEFAULT 1";
-                    ExecuteNonQuery(addLevelColumn);
-                    Debug.WriteLine("[DB] category.level 컬럼 추가됨");
-                }
-
-                // parentCategoryId 컬럼 추가 (계층 구조를 위해)
-                string checkParentColumn = @"
-            SELECT COUNT(*) as count 
-            FROM pragma_table_info('category') 
-            WHERE name='parentCategoryId'";
-
-                result = ExecuteSelect(checkParentColumn);
-                if (result.Rows.Count > 0 && Convert.ToInt32(result.Rows[0]["count"]) == 0)
-                {
-                    string addParentColumn = @"
-                ALTER TABLE category ADD COLUMN parentCategoryId INTEGER DEFAULT NULL";
-                    ExecuteNonQuery(addParentColumn);
-                    Debug.WriteLine("[DB] category.parentCategoryId 컬럼 추가됨");
-                }
-
-                Debug.WriteLine("[DB] 헤딩 레벨 스키마 업데이트 완료");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[DB ERROR] 헤딩 레벨 스키마 업데이트 실패: {ex.Message}");
-            }
         }
 
         public static void CheckTableStructure()
@@ -315,71 +193,6 @@ layOrder INTEGER DEFAULT 0,
             }
         }
 
-        public static void UpdateSchemaForImageSupport()
-        {
-            try
-            {
-                // noteContent 테이블에 imageUrl 컬럼 추가
-                string checkImageColumn = @"
-            SELECT COUNT(*) as count 
-            FROM pragma_table_info('noteContent') 
-            WHERE name='imageUrl'";
-
-                var result = ExecuteSelect(checkImageColumn);
-                if (result.Rows.Count > 0 && Convert.ToInt32(result.Rows[0]["count"]) == 0)
-                {
-                    string addImageColumn = @"
-                ALTER TABLE noteContent ADD COLUMN imageUrl VARCHAR DEFAULT NULL";
-                    ExecuteNonQuery(addImageColumn);
-                    Debug.WriteLine("[DB] noteContent.imageUrl 컬럼 추가됨");
-                }
-
-                // noteContent 테이블에 contentType 컬럼 추가 (text/image 구분)
-                string checkTypeColumn = @"
-            SELECT COUNT(*) as count 
-            FROM pragma_table_info('noteContent') 
-            WHERE name='contentType'";
-
-                result = ExecuteSelect(checkTypeColumn);
-                if (result.Rows.Count > 0 && Convert.ToInt32(result.Rows[0]["count"]) == 0)
-                {
-                    string addTypeColumn = @"
-                ALTER TABLE noteContent ADD COLUMN contentType VARCHAR DEFAULT 'text'";
-                    ExecuteNonQuery(addTypeColumn);
-                    Debug.WriteLine("[DB] noteContent.contentType 컬럼 추가됨");
-                }
-
-                Debug.WriteLine("[DB] 이미지 지원 스키마 업데이트 완료");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[DB ERROR] 이미지 지원 스키마 업데이트 실패: {ex.Message}");
-            }
-        }
-
-        public static void UpdateSchemaForMonthlyComment()
-        {
-            try
-            {
-                // monthlyComment 테이블 생성
-                string createTableQuery = @"
-            CREATE TABLE IF NOT EXISTS monthlyComment
-            (
-                commentId INTEGER PRIMARY KEY AUTOINCREMENT,
-                monthDate DATETIME NOT NULL,
-                comment VARCHAR NULL,
-                UNIQUE(monthDate)
-            )";
-
-                ExecuteNonQuery(createTableQuery);
-                Debug.WriteLine("[DB] monthlyComment 테이블 생성/확인 완료");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[DB ERROR] monthlyComment 스키마 업데이트 실패: {ex.Message}");
-            }
-        }
-
         public static void VerifyDatabaseIntegrity(int subjectId)
         {
             try
@@ -449,7 +262,10 @@ layOrder INTEGER DEFAULT 0,
             }
         }
 
+        public static string GetConnectionString()
+        {
+            return connectionString;
+        }
         // DB 경로 확인용
-        public static string GetDatabasePath() => dbPath;
     }
 }

@@ -12,6 +12,7 @@ using System.IO;
 using Notea.Modules.Subject.ViewModels;
 using System.Windows.Shapes;
 using Path = System.IO.Path;
+using Notea.Modules.Common.ViewModels;
 
 namespace Notea.Modules.Subject.Views
 {
@@ -31,6 +32,39 @@ namespace Notea.Modules.Subject.Views
                 vm.IsEditing = true;
                 vm.HasFocus = true; // 포커스 상태 설정
                 textBox.CaretIndex = textBox.Text.Length;
+
+                // ✅ 카테고리 포커스 추적 및 타이머 연동
+                try
+                {
+                    if (vm.CategoryId > 0)
+                    {
+                        var editorVM = this.DataContext as NoteEditorViewModel;
+                        if (editorVM != null)
+                        {
+                            string subjectName = GetSubjectNameFromId(editorVM.SubjectId);
+
+                            if (!string.IsNullOrEmpty(subjectName))
+                            {
+                                // 1. 데이터베이스에 포커스 시작 기록
+                                var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                                dbHelper.StartCategoryFocus(vm.CategoryId, subjectName);
+
+                                // 2. 타이머에 현재 활성 카테고리 알림
+                                var timerVM = GetTimerViewModel();
+                                if (timerVM != null)
+                                {
+                                    timerVM.SetActiveCategory(vm.CategoryId, subjectName);
+                                }
+
+                                System.Diagnostics.Debug.WriteLine($"[포커스] 카테고리 포커스 및 타이머 연동 완료: CategoryId={vm.CategoryId}, Subject={subjectName}");
+                            }
+                        }
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[포커스 오류] 카테고리 포커스 시작 실패: {ex.Message}");
+                }
             }
         }
 
@@ -47,10 +81,50 @@ namespace Notea.Modules.Subject.Views
                 vm.IsComposing = false; // IME 조합 상태 리셋
                 vm.UpdateInlinesFromContent();
 
+                try
+                {
+                    if (vm.CategoryId > 0)
+                    {
+                        var timerVM = GetTimerViewModel();
+                        if (timerVM != null)
+                        {
+                            timerVM.ClearActiveCategory();
+                        }
+
+                        System.Diagnostics.Debug.WriteLine($"[포커스] 카테고리 포커스 해제 및 타이머 연동: CategoryId={vm.CategoryId}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[포커스 오류] 카테고리 포커스 해제 실패: {ex.Message}");
+                }
+
                 Dispatcher.BeginInvoke(new Action(() =>
                 {
                     vm.IsEditing = false;
                 }), DispatcherPriority.DataBind);
+            }
+        }
+
+        private string GetSubjectNameFromId(int subjectId)
+        {
+            try
+            {
+                // Helpers/DatabaseHelper의 ExecuteSelect 사용하여 과목명 조회
+                string query = $"SELECT title FROM subject WHERE subJectId = {subjectId}";
+                var result = Notea.Helpers.DatabaseHelper.ExecuteSelect(query);
+
+                if (result.Rows.Count > 0)
+                {
+                    return result.Rows[0]["title"].ToString();
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DB 오류] 과목명 조회 실패: {ex.Message}");
+                return null;
             }
         }
 
@@ -855,6 +929,29 @@ namespace Notea.Modules.Subject.Views
             catch (Exception ex)
             {
                 Debug.WriteLine($"[ERROR] 이미지 파일 삭제 실패: {ex.Message}");
+            }
+        }
+
+        private RightSidebarViewModel GetTimerViewModel()
+        {
+            try
+            {
+                // MainWindow를 통해 RightSidebar의 ViewModel 찾기
+                var mainWindow = Application.Current.MainWindow;
+                if (mainWindow != null)
+                {
+                    var rightSidebar = FindVisualChild<Notea.Modules.Common.Views.RightSidebar>(mainWindow);
+                    if (rightSidebar?.DataContext is RightSidebarViewModel timerVM)
+                    {
+                        return timerVM;
+                    }
+                }
+                return null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[포커스] 타이머 ViewModel 찾기 실패: {ex.Message}");
+                return null;
             }
         }
 

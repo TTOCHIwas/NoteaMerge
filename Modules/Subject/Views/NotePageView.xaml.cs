@@ -22,7 +22,24 @@ namespace Notea.Modules.Subject.Views
             if (DataContext is NotePageViewModel vm)
             {
                 vm.SearchHighlightRequested += OnSearchHighlightRequested;
+
+                try
+                {
+                    string subjectName = GetCurrentSubjectName(vm);
+                    if (!string.IsNullOrEmpty(subjectName))
+                    {
+                        var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                        dbHelper.StartSubjectFocusSession(subjectName);
+
+                        System.Diagnostics.Debug.WriteLine($"[페이지] 과목 포커스 세션 시작: {subjectName}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[페이지 오류] 과목 포커스 세션 시작 실패: {ex.Message}");
+                }
             }
+            
         }
 
         private void OnUnloaded(object sender, RoutedEventArgs e)
@@ -31,6 +48,53 @@ namespace Notea.Modules.Subject.Views
             {
                 vm.SearchHighlightRequested -= OnSearchHighlightRequested;
                 vm.SaveChanges();
+
+                try
+                {
+                    string subjectName = GetCurrentSubjectName(vm);
+                    if (!string.IsNullOrEmpty(subjectName))
+                    {
+                        var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                        dbHelper.EndSubjectFocusSession(subjectName);
+
+                        System.Diagnostics.Debug.WriteLine($"[페이지] 과목 포커스 세션 종료: {subjectName}");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[페이지 오류] 과목 포커스 세션 종료 실패: {ex.Message}");
+                }
+            }
+        }
+
+        private string GetCurrentSubjectName(NotePageViewModel vm)
+        {
+            try
+            {
+                // SubjectTitle 속성이나 SubjectId를 통해 과목명 조회
+                if (!string.IsNullOrEmpty(vm.SubjectTitle))
+                {
+                    return vm.SubjectTitle;
+                }
+
+                // 또는 EditorViewModel의 SubjectId를 통해 조회
+                if (vm.EditorViewModel?.SubjectId > 0)
+                {
+                    string query = $"SELECT title FROM subject WHERE subJectId = {vm.EditorViewModel.SubjectId}";
+                    var result = Notea.Helpers.DatabaseHelper.ExecuteSelect(query);
+
+                    if (result.Rows.Count > 0)
+                    {
+                        return result.Rows[0]["title"].ToString();
+                    }
+                }
+
+                return null;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DB 오류] 과목명 조회 실패: {ex.Message}");
+                return null;
             }
         }
 
