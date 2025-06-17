@@ -1,0 +1,28 @@
+﻿<UserControl x:Class="Notea.Modules.Common.Views.CenterPanelShell"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+             mc:Ignorable="d"
+             d:DesignWidth="1200" d:DesignHeight="1080"
+             Background="White">
+
+    <Border Padding="20" Background="White">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*"/>
+                <!-- 헤더 영역 -->
+                <RowDefinition Height="7*"/>
+                <!-- 본문 영역 -->
+            </Grid.RowDefinitions>
+
+            <!-- 유동 헤더 -->
+            <ContentControl Grid.Row="0" Content="{Binding HeaderContent, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+                            HorizontalAlignment="Stretch"/>
+
+            <!-- 유동 바디 -->
+            <ContentControl Grid.Row="1" Content="{Binding BodyContent, RelativeSource={RelativeSource AncestorType=UserControl}}"
+                            HorizontalAlignment="Stretch"/>
+        </Grid>
+    </Border>
+</UserControl>

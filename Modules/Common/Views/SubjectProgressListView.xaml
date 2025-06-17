@@ -1,0 +1,127 @@
+﻿<!-- 실제 측정 시간 기반 진행률 표시, 목표 설정 관련 모든 UI 제거 -->
+<UserControl x:Class="Notea.Modules.Common.Views.SubjectProgressListView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Notea.Modules.Common.Views"
+             xmlns:converters="clr-namespace:Notea.Converters" 
+             Height="Auto" Width="Auto"
+             AllowDrop="True"
+             Drop="SubjectProgressListView_Drop"
+             DragOver="SubjectProgressListView_DragOver">
+
+    <UserControl.Resources>
+        <converters:DynamicProgressToWidthConverter x:Key="DynamicProgressToWidthConverter"/>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+    </UserControl.Resources>
+
+    <Border x:Name="DropTargetBorder">
+        <!-- 과목 리스트 -->
+        <ScrollViewer VerticalScrollBarVisibility="Auto">
+            <StackPanel Orientation="Vertical" Margin="0,10">
+                <ItemsControl ItemsSource="{Binding Subjects}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <StackPanel Margin="0,0,0,15">
+                                <!-- 과목 헤더 - 실제 측정 시간만 표시 -->
+                                <Grid Height="60" Margin="0,5">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <!-- 과목명 -->
+                                        <ColumnDefinition Width="*"/>
+                                        <!-- 진행률바 컨테이너 -->
+                                    </Grid.ColumnDefinitions>
+
+                                    <!-- 과목명 -->
+                                    <TextBlock Grid.Column="0" 
+                                               Text="{Binding SubjectName}" 
+                                               FontSize="16" 
+                                               FontWeight="Bold" 
+                                               VerticalAlignment="Center"
+                                               HorizontalAlignment="Left"
+                                               MouseLeftButtonDown="SubjectName_MouseLeftButtonDown"
+                                               MouseMove="SubjectName_MouseMove"
+                                               Background="Transparent"/>
+
+                                    <!-- ✅ 실제 측정된 진행률바 (오늘 총 시간 대비) -->
+                                    <Border Grid.Column="1" 
+                                        Height="20" 
+                                        Background="#F0F0F0"
+                                        VerticalAlignment="Center"
+                                        ToolTip="{Binding Tooltip}">
+                                        <Rectangle Fill="#000000" HorizontalAlignment="Right">
+                                            <Rectangle.Width>
+                                                <MultiBinding Converter="{StaticResource DynamicProgressToWidthConverter}">
+                                                    <Binding Path="ActualProgress"/>
+                                                    <Binding Path="ActualWidth" RelativeSource="{RelativeSource AncestorType=Border}"/>
+                                                </MultiBinding>
+                                            </Rectangle.Width>
+                                        </Rectangle>
+                                    </Border>
+                                </Grid>
+
+                                <!-- TopicGroups 표시 -->
+                                <ItemsControl ItemsSource="{Binding TopicGroups}" Margin="20,0,0,0">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <StackPanel>
+                                                <!-- 분류 제목 및 진행률 -->
+                                                <Grid Height="60"
+                                                      MouseLeftButtonDown="TopicGroup_MouseLeftButtonDown"
+                                                      MouseMove="TopicGroup_MouseMove"
+                                                      Background="Transparent">
+                                                    <Grid.ColumnDefinitions>
+                                                        <!-- 체크박스, 분류명 -->
+                                                        <ColumnDefinition Width="*"/>
+                                                        <!-- 진행률바 컨테이너 -->
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+
+                                                    <Grid Grid.Column="0">
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                        </Grid.ColumnDefinitions>
+
+                                                        <!-- 분류 체크박스 -->
+                                                        <CheckBox Grid.Column="0" 
+                                                          Style="{StaticResource ToDoCheckBoxStyle}"
+                                                          VerticalAlignment="Center" 
+                                                          IsChecked="{Binding IsCompleted, Mode=TwoWay}"/>
+
+                                                        <!-- 분류명 -->
+                                                        <TextBlock Padding="10,0,0,0" Grid.Column="1" 
+                                                           Text="{Binding GroupTitle}" 
+                                                           FontSize="14" 
+                                                           FontWeight="SemiBold" 
+                                                           VerticalAlignment="Center"/>
+                                                    </Grid>
+
+                                                    <!-- ✅ 분류 진행률바 - 부모 과목의 오늘 시간 대비 -->
+                                                    <Border Grid.Column="1" 
+                                                        Height="20" 
+                                                        Background="#F0F0F0"
+                                                        VerticalAlignment="Center"
+                                                        Margin="10,0,0,0"
+                                                        ToolTip="{Binding StudyTimeTooltip}">
+                                                        <Rectangle Fill="#000000" HorizontalAlignment="Right">
+                                                            <Rectangle.Width>
+                                                                <MultiBinding Converter="{StaticResource DynamicProgressToWidthConverter}">
+                                                                    <Binding Path="ProgressRatio"/>
+                                                                    <Binding Path="ActualWidth" RelativeSource="{RelativeSource AncestorType=Border}"/>
+                                                                </MultiBinding>
+                                                            </Rectangle.Width>
+                                                        </Rectangle>
+                                                    </Border>
+                                                </Grid>
+                                            </StackPanel>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </ScrollViewer>
+    </Border>
+</UserControl>

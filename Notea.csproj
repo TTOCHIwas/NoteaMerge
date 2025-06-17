@@ -1,0 +1,65 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <None Remove="Resources\Images\add_default.svg" />
+    <None Remove="Resources\Images\add_hover.svg" />
+    <None Remove="Resources\Images\add_schedule.svg" />
+    <None Remove="Resources\Images\add_todo.svg" />
+    <None Remove="Resources\Images\check_checked.svg" />
+    <None Remove="Resources\Images\check_default.svg" />
+    <None Remove="Resources\Images\check_hover.svg" />
+    <None Remove="Resources\Images\down_default.svg" />
+    <None Remove="Resources\Images\down_hover.svg" />
+    <None Remove="Resources\Images\fold_default.svg" />
+    <None Remove="Resources\Images\fold_open.svg" />
+    <None Remove="Resources\Images\leftSideBar_default.svg" />
+    <None Remove="Resources\Images\leftSideBar_hover.svg" />
+    <None Remove="Resources\Images\search_default.svg" />
+    <None Remove="Resources\Images\search_hover.svg" />
+    <None Remove="Resources\Images\up_default.svg" />
+    <None Remove="Resources\Images\up_hover.svg" />
+    <None Remove="Resources\Images\x_default.svg" />
+    <None Remove="Resources\Images\x_hover.svg" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite.Core" Version="9.0.6" />
+    <PackageReference Include="SharpVectors.Wpf" Version="1.8.4.2" />
+    <PackageReference Include="System.Data.SQLite.Core" Version="1.0.119" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Folder Include="Controls\" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Resources\Images\add_default.svg" />
+    <Resource Include="Resources\Images\add_hover.svg" />
+    <Resource Include="Resources\Images\add_schedule.svg" />
+    <Resource Include="Resources\Images\add_todo.svg" />
+    <Resource Include="Resources\Images\check_checked.svg" />
+    <Resource Include="Resources\Images\check_default.svg" />
+    <Resource Include="Resources\Images\check_hover.svg" />
+    <Resource Include="Resources\Images\down_default.svg" />
+    <Resource Include="Resources\Images\down_hover.svg" />
+    <Resource Include="Resources\Images\fold_default.svg" />
+    <Resource Include="Resources\Images\fold_open.svg" />
+    <Resource Include="Resources\Images\leftSideBar_default.svg" />
+    <Resource Include="Resources\Images\leftSideBar_hover.svg" />
+    <Resource Include="Resources\Images\search_default.svg" />
+    <Resource Include="Resources\Images\search_hover.svg" />
+    <Resource Include="Resources\Images\up_default.svg" />
+    <Resource Include="Resources\Images\up_hover.svg" />
+    <Resource Include="Resources\Images\x_default.svg" />
+    <Resource Include="Resources\Images\x_hover.svg" />
+  </ItemGroup>
+
+</Project>

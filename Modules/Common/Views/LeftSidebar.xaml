@@ -1,0 +1,60 @@
+﻿<UserControl x:Class="Notea.Modules.Common.Views.LeftSidebar"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="clr-namespace:Notea.Modules.Common.ViewModels"
+             xmlns:local="clr-namespace:Notea.Modules.Common.Views"
+             xmlns:subjects="clr-namespace:Notea.Modules.Common.Views"
+             xmlns:conv="clr-namespace:Notea.Converters"
+             xmlns:svgc="http://sharpvectors.org/svgc/"
+             Height="Auto" Width="280">
+
+    <UserControl.Resources>
+        <conv:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+    </UserControl.Resources>
+
+    <Border Background="White" VerticalAlignment="Stretch">
+        <Grid Margin="20">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="*" />
+                <!-- 제목 -->
+                <RowDefinition Height="0.3*" />
+                <!-- 구분선 + 버튼 -->
+                <RowDefinition Height="6.7*" />
+                <!-- 과목 리스트 -->
+            </Grid.RowDefinitions>
+
+            <!-- 제목 + 하단 선 포함 -->
+            <Border Grid.Row="0" BorderBrush="#555555" BorderThickness="0,0,0,2">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+
+                    <TextBlock Grid.Column="0" Margin="20,0,0,0"
+                   Text="{Binding SidebarTitle}"
+                   FontSize="32"
+                   FontWeight="Bold"
+                   VerticalAlignment="Center"
+                   Cursor="Hand"
+                   MouseLeftButtonDown="TextBlock_MouseLeftButtonDown"/>
+
+                    <Button Grid.Column="1" Margin="0,0,20,0"
+                Command="{Binding DataContext.ToggleSidebarCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                Style="{StaticResource SideBarButtonStyle}"
+                Width="30" Height="30"
+                VerticalAlignment="Center" />
+                </Grid>
+            </Border>
+
+
+            <!-- 과목 리스트 -->
+            <Grid Grid.Row="2" Margin="20,0">
+                <ContentControl Content="{Binding SidebarContentView}" />
+            </Grid>
+
+
+        </Grid>
+    </Border>
+
+</UserControl>

@@ -1,0 +1,9 @@
+﻿<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <SolidColorBrush x:Key="divierColor" Color="#555555"/>
+    <SolidColorBrush x:Key="addButtonDefaultColor" Color="#DDDDDD"/>
+    <SolidColorBrush x:Key="addButtonHoverColor" Color="#AAAAAA"/>
+    <SolidColorBrush x:Key="PlaceHolderColor" Color="#AAAAAA"/>
+    <SolidColorBrush x:Key="black" Color="#1E1E1E"/>
+
+</ResourceDictionary>

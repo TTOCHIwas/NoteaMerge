@@ -1,0 +1,72 @@
+﻿<!-- 수정된 SubjectListView.xaml - Topics 데이터 로딩 및 드래그드롭 개선 -->
+<UserControl x:Class="Notea.Modules.Common.Views.SubjectListView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:Notea.Converters">
+    <UserControl.Resources>
+        <conv:BoolToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
+        <conv:HasItemsToVisibilityConverter x:Key="HasItemsToVisibilityConverter"/>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto"
+                  AllowDrop="True"
+                  Drop="SubjectList_Drop"
+                  DragOver="SubjectList_DragOver">
+        <ItemsControl ItemsSource="{Binding Subjects}">
+            <ItemsControl.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel>
+                        <!-- 과목명 - 드래그 가능 -->
+                        <Grid Height="60" Background="Transparent"
+                              MouseLeftButtonDown="SubjectGrid_MouseLeftButtonDown"
+                              MouseMove="SubjectGrid_MouseMove">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="20" />
+                            </Grid.ColumnDefinitions>
+                            <TextBlock Grid.Column="0" Text="{Binding SubjectName}" FontWeight="Bold" FontSize="16" VerticalAlignment="Center"
+                                       x:Name="SubjectNameText"/>
+                            <!-- 과목에 TopicGroups가 있을 때만 펼치기 버튼 표시 -->
+                            <Button Grid.Column="1" Command="{Binding ToggleCommand}" Style="{StaticResource FolderButtonStyle}" VerticalAlignment="Center"
+                                    Visibility="{Binding TopicGroups, Converter={StaticResource HasItemsToVisibilityConverter}}"/>
+                        </Grid>
+
+                        <!-- 토픽 그룹들 -->
+                        <ItemsControl ItemsSource="{Binding TopicGroups}" Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisibilityConverter}}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel>
+                                        <!-- 토픽 그룹 제목 - 드래그 가능 -->
+                                        <Grid Height="60" VerticalAlignment="Center" Background="Transparent"
+                                              MouseLeftButtonDown="TopicGroup_MouseLeftButtonDown"
+                                              MouseMove="TopicGroup_MouseMove">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="*" />
+                                                <ColumnDefinition Width="20" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock Grid.Column="0" Text="{Binding GroupTitle}" Margin="20,0" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+                                            <!-- Topics가 있을 때만 펼치기 버튼 표시 -->
+                                            <Button Grid.Column="1" Command="{Binding ToggleCommand}" Style="{StaticResource FolderButtonStyle}" VerticalAlignment="Center"
+                                                    Visibility="{Binding Topics, Converter={StaticResource HasItemsToVisibilityConverter}}"/>
+                                        </Grid>
+
+                                        <!-- 토픽 항목들 (드래그 기능 없음) -->
+                                        <ItemsControl ItemsSource="{Binding Topics}" Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisibilityConverter}}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <Grid Height="60" VerticalAlignment="Center" Background="Transparent">
+                                                        <TextBlock Text="{Binding Name}" FontWeight="Bold" Margin="40,0" FontSize="14" VerticalAlignment="Center"/>
+                                                    </Grid>
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </DataTemplate>
+            </ItemsControl.ItemTemplate>
+        </ItemsControl>
+    </ScrollViewer>
+</UserControl>
