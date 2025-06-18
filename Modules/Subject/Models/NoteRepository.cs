@@ -934,10 +934,6 @@ namespace Notea.Modules.Subject.Models
         #endregion
 
         #region 저장 로직
-
-        /// <summary>
-        /// 라인이 제목인지 일반 텍스트인지 판단하여 적절히 저장 (개선된 버전)
-        /// </summary>
         public static void SaveOrUpdateLine(MarkdownLineViewModel line)
         {
             try
@@ -962,31 +958,41 @@ namespace Notea.Modules.Subject.Models
                         int newCategoryId = InsertCategory(line.Content, line.SubjectId, line.DisplayOrder, level, parentId);
                         line.CategoryId = newCategoryId;
                         line.IsHeadingLine = true;
+
                         UpdateSubsequentCategoryHierarchy(line.SubjectId, line.DisplayOrder);
                         Debug.WriteLine($"[SAVE] 새 제목 생성 완료. CategoryId: {newCategoryId}, SubjectId: {line.SubjectId}");
                     }
                 }
                 else
                 {
-                    // 일반 텍스트인 경우
+                    // CategoryId가 0이어도 저장 허용
                     if (line.CategoryId <= 0)
                     {
-                        line.CategoryId = FindNearestPreviousCategory(line.SubjectId, line.DisplayOrder);
+                        // 이전 카테고리 찾기 시도
+                        int previousCategoryId = FindNearestPreviousCategory(line.SubjectId, line.DisplayOrder);
 
-                        // ✅ 중요: CategoryId가 -1이면 (카테고리가 없으면) 저장하지 않음
-                        if (line.CategoryId <= 0)
+                        if (previousCategoryId > 0)
                         {
-                            Debug.WriteLine($"[SAVE] 카테고리 없음 - 텍스트 저장 스킵. SubjectId: {line.SubjectId}, Content: '{line.Content}'");
-                            Debug.WriteLine($"[SAVE] 힌트: 먼저 제목(# 텍스트)을 입력하여 카테고리를 생성하세요.");
-                            return;
+                            line.CategoryId = previousCategoryId;
+                            Debug.WriteLine($"[SAVE] 이전 카테고리 찾음: CategoryId={line.CategoryId}");
                         }
-
-                        Debug.WriteLine($"[SAVE] 이전 카테고리 찾음: CategoryId={line.CategoryId}");
+                        else
+                        {
+                            line.CategoryId = 0;
+                            Debug.WriteLine($"[SAVE] 카테고리 없음 - CategoryId를 0으로 설정하고 저장 진행");
+                        }
                     }
 
                     if (line.TextId <= 0)
                     {
-                        int newTextId = InsertNewLine(line.Content, line.SubjectId, line.CategoryId, line.DisplayOrder, line.ContentType, line.ImageUrl);
+                        int newTextId = InsertNewLine(
+                            line.Content ?? "", // 빈 문자열도 허용
+                            line.SubjectId,
+                            line.CategoryId, // 0이어도 저장
+                            line.DisplayOrder,
+                            line.ContentType,
+                            line.ImageUrl
+                        );
                         line.TextId = newTextId;
                         Debug.WriteLine($"[SAVE] 새 텍스트 생성 완료. TextId: {newTextId}, SubjectId: {line.SubjectId}, CategoryId: {line.CategoryId}");
                     }

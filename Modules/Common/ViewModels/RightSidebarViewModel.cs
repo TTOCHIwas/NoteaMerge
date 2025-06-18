@@ -215,7 +215,7 @@ namespace Notea.Modules.Common.ViewModels
                 cmd.CommandText = @"
             SELECT c.categoryId 
             FROM category c 
-            INNER JOIN subject s ON c.subJectId = s.subJectId 
+            INNER JOIN subject s ON c.subjectId = s.subjectId 
             WHERE c.title = @groupTitle AND s.title = @subjectName";
 
                 cmd.Parameters.AddWithValue("@groupTitle", groupTitle);
