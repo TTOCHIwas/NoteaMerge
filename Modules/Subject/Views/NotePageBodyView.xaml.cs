@@ -95,26 +95,19 @@ namespace Notea.Modules.Subject.Views
         {
             try
             {
-                // SubjectTitle 속성이나 SubjectId를 통해 과목명 조회
-                if (!string.IsNullOrEmpty(vm.SubjectTitle))
+                if (vm?.EditorViewModel?.SubjectId > 0)
                 {
-                    return vm.SubjectTitle;
-                }
-
-                // 또는 EditorViewModel의 SubjectId를 통해 조회
-                if (vm.EditorViewModel?.SubjectId > 0)
-                {
-                    // ✅ 수정된 GetSubjectNameById 메서드 사용
+                    // ✅ 올바른 테이블명과 컬럼명 사용
                     return Notea.Modules.Subject.Models.NoteRepository.GetSubjectNameById(vm.EditorViewModel.SubjectId);
                 }
-
                 return null;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[NotePageBodyView] 과목명 조회 오류: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[DB 오류] 과목명 조회 실패: {ex.Message}");
                 return null;
             }
         }
+
     }
 }

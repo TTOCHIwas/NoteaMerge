@@ -47,6 +47,43 @@ namespace Notea.ViewModels
         // 🆕 공유 데이터 소스 - 두 페이지에서 모두 사용 (실제 측정 시간만)
         public ObservableCollection<SubjectProgressViewModel> SharedSubjectProgress { get; set; }
 
+        private bool _isSidebarCollapsed = false;
+        public bool IsSidebarCollapsed
+        {
+            get => _isSidebarCollapsed;
+            set
+            {
+                if (_isSidebarCollapsed != value)
+                {
+                    _isSidebarCollapsed = value;
+                    OnPropertyChanged(nameof(IsSidebarCollapsed));
+                }
+            }
+        }
+
+        private void ToggleSidebar()
+        {
+            try
+            {
+                if (LeftSidebarWidth.Value > 0)
+                {
+                    LeftSidebarWidth = new GridLength(0);
+                    IsSidebarCollapsed = true;
+                    System.Diagnostics.Debug.WriteLine("[MainViewModel] 사이드바 숨김");
+                }
+                else
+                {
+                    LeftSidebarWidth = new GridLength(280);
+                    IsSidebarCollapsed = false;
+                    System.Diagnostics.Debug.WriteLine("[MainViewModel] 사이드바 표시");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 사이드바 토글 오류: {ex.Message}");
+            }
+        }
+
         private LeftSidebarViewModel _sidebarViewModel;
         public LeftSidebarViewModel SidebarViewModel
         {
@@ -154,7 +191,7 @@ namespace Notea.ViewModels
 
             // Commands 초기화
             ToggleSidebarCommand = new RelayCommand(ToggleSidebar);
-            ExpandSidebarCommand = new RelayCommand(() => LeftSidebarWidth = new GridLength(280));
+            ExpandSidebarCommand = new RelayCommand(ExpandSidebar);
             NavigateToSubjectListCommand = new RelayCommand(NavigateToSubjectList);
             NavigateToTodayCommand = new RelayCommand(NavigateToToday);
             NavigateToNoteEditorCommand = new RelayCommand<object>(NavigateToNoteEditor);
@@ -162,16 +199,26 @@ namespace Notea.ViewModels
 
             try
             {
-
                 RestoreDailySubjects();
-
                 SetupProgressUpdateSystem();
-
-                
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] 초기화 오류: {ex.Message}");
+            }
+        }
+
+        private void ExpandSidebar()
+        {
+            try
+            {
+                LeftSidebarWidth = new GridLength(280);
+                IsSidebarCollapsed = false;
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 사이드바 확장");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 사이드바 확장 오류: {ex.Message}");
             }
         }
 
@@ -638,13 +685,6 @@ namespace Notea.ViewModels
             _dailyBodyVM.LoadDailyData(date);
         }
 
-        private void ToggleSidebar()
-        {
-            LeftSidebarWidth = LeftSidebarWidth.Value == 0
-                ? new GridLength(280)
-                : new GridLength(0);
-        }
-
         public void Cleanup()
         {
             try
@@ -662,7 +702,6 @@ namespace Notea.ViewModels
             }
         }
 
-        // INotifyPropertyChanged 구현
         public event PropertyChangedEventHandler PropertyChanged;
         protected void OnPropertyChanged(string name)
         {

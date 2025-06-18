@@ -314,18 +314,26 @@ namespace Notea.Database
 
                 if (topicItemExists)
                 {
-                    cmd.CommandText = @"
-                INSERT INTO TopicItem_new (Id, categoryId, Content, CreatedAt)
-                SELECT Id, TopicGroupId, Content, CreatedAt FROM TopicItem";
-                    cmd.ExecuteNonQuery();
+                    // 기존 TopicItem 테이블의 컬럼 구조 확인
+                    cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('TopicItem') WHERE name='TopicGroupId'";
+                    var hasTopicGroupId = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
 
-                    cmd.CommandText = "DROP TABLE TopicItem";
-                    cmd.ExecuteNonQuery();
-
-                    cmd.CommandText = "ALTER TABLE TopicItem_new RENAME TO TopicItem";
-                    cmd.ExecuteNonQuery();
-
-                    Debug.WriteLine("[DB] TopicItem 테이블 구조 변경 완료: TopicGroupId → categoryId");
+                    if (hasTopicGroupId)
+                    {
+                        // TopicGroupId가 있는 경우만 마이그레이션 실행
+                        cmd.CommandText = @"
+            INSERT INTO TopicItem_new (Id, categoryId, Content, CreatedAt)
+            SELECT Id, TopicGroupId, Content, CreatedAt FROM TopicItem";
+                        cmd.ExecuteNonQuery();
+                    }
+                    else
+                    {
+                        // 이미 categoryId를 사용하는 경우 그대로 복사
+                        cmd.CommandText = @"
+            INSERT INTO TopicItem_new (Id, categoryId, Content, CreatedAt)
+            SELECT Id, categoryId, Content, CreatedAt FROM TopicItem";
+                        cmd.ExecuteNonQuery();
+                    }
                 }
 
                 Debug.WriteLine("[DB] TopicGroup → category 통합 완료");
