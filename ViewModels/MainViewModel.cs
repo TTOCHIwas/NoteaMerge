@@ -33,8 +33,8 @@ namespace Notea.ViewModels
         private readonly SubjectListPageHeaderView _subjectHeaderView;
         private readonly SubjectListPageBodyView _subjectBodyView;
 
-        // 필기 화면용 View와 ViewModel 추가 (기존 멤버 변수 섹션에)
-        private Notea.Modules.Subject.Views.NotePageView _notePageView;
+        private Notea.Modules.Subject.Views.NotePageHeaderView _notePageHeaderView;
+        private Notea.Modules.Subject.Views.NotePageBodyView _notePageBodyView;
         private Notea.Modules.Subject.ViewModels.NotePageViewModel _notePageVM;
 
         // 현재 선택된 과목 정보
@@ -160,8 +160,6 @@ namespace Notea.ViewModels
             NavigateToNoteEditorCommand = new RelayCommand<object>(NavigateToNoteEditor);
             NavigateBackToSubjectListCommand = new RelayCommand(NavigateBackToSubjectList);
 
-
-
             try
             {
 
@@ -193,7 +191,6 @@ namespace Notea.ViewModels
                 else if (parameter is SubjectProgressViewModel subjectProgress)
                 {
                     subjectName = subjectProgress.SubjectName;
-                    // SubjectId 조회
                     subjectId = GetSubjectIdByName(subjectName);
                 }
                 else if (parameter is string name)
@@ -211,28 +208,33 @@ namespace Notea.ViewModels
                 _currentSelectedSubject = subjectName;
                 _currentSelectedSubjectId = subjectId;
 
-                // 필기 화면용 ViewModel과 View 생성
+                // 필기 화면용 ViewModel 생성
                 _notePageVM = new Notea.Modules.Subject.ViewModels.NotePageViewModel();
-                _notePageView = new Notea.Modules.Subject.Views.NotePageView { DataContext = _notePageVM };
+
+                // Header와 Body View 생성하고 DataContext 설정
+                _notePageHeaderView = new Notea.Modules.Subject.Views.NotePageHeaderView { DataContext = _notePageVM };
+                _notePageBodyView = new Notea.Modules.Subject.Views.NotePageBodyView { DataContext = _notePageVM };
 
                 // 과목 정보 설정
                 _notePageVM.SetSubject(subjectId, subjectName);
 
-                // 필기 화면으로 전환
-                HeaderContent = null; // 헤더 없음
-                BodyContent = _notePageView;
+                // 필기 화면으로 전환 - Header와 Body 분리
+                HeaderContent = _notePageHeaderView;
+                BodyContent = _notePageBodyView;
 
                 // 왼쪽 사이드바를 "오늘 할 일" 모드로 변경
                 SidebarViewModel.SetContext("today");
                 SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
 
-                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목 '{subjectName}' 필기 화면으로 이동");
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목 '{subjectName}' 필기 화면으로 이동 (Header/Body 분리)");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] 필기 화면 이동 오류: {ex.Message}");
             }
         }
+
+
 
         private void NavigateBackToSubjectList()
         {
@@ -249,6 +251,11 @@ namespace Notea.ViewModels
                 BodyContent = _subjectBodyView;
                 SidebarViewModel.SetContext("today");
                 SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
+
+                // 사용한 View들 정리
+                _notePageHeaderView = null;
+                _notePageBodyView = null;
+                _notePageVM = null;
 
                 System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록으로 돌아감");
             }
@@ -356,11 +363,13 @@ namespace Notea.ViewModels
                 using var conn = Notea.Modules.Common.Helpers.DatabaseHelper.Instance.GetConnection();
                 conn.Open();
                 using var cmd = conn.CreateCommand();
+
+                // ✅ 수정: s.title → s.Name (올바른 컬럼명 사용)
                 cmd.CommandText = @"
-                    SELECT c.categoryId 
-                    FROM category c 
-                    INNER JOIN subject s ON c.subJectId = s.subJectId 
-                    WHERE c.title = @groupTitle AND s.title = @subjectName";
+            SELECT c.categoryId 
+            FROM category c 
+            INNER JOIN Subject s ON c.subjectId = s.subjectId 
+            WHERE c.title = @groupTitle AND s.Name = @subjectName";
 
                 cmd.Parameters.AddWithValue("@groupTitle", groupTitle);
                 cmd.Parameters.AddWithValue("@subjectName", subjectName);
@@ -370,7 +379,7 @@ namespace Notea.ViewModels
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[DB Error] CategoryId 조회 실패: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] GetCategoryIdByTitle 오류: {ex.Message}");
                 return 0;
             }
         }

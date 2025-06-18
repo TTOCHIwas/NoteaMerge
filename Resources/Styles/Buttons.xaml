@@ -25,44 +25,21 @@
 
     <Style x:Key="backButtonStyle" TargetType="Button">
         <Setter Property="OverridesDefaultStyle" Value="True"/>
+        <Setter Property="Height" Value="auto"/>
+        <Setter Property="Width" Value="auto"/>
         <Setter Property="Padding" Value="10,5"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Content" Value="←"/>
         <Setter Property="Background" Value="Transparent"/>
-        <Setter Property="Foreground" Value="{StaticResource black}"/>
+        <Setter Property="Foreground" Value="#1E1E1E"/>
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="Button">
-                    <Border Name="border"
-                        Background="{TemplateBinding Background}"
-                        Padding="{TemplateBinding Padding}"
-                        RenderTransformOrigin="0,0.5"
-                        HorizontalAlignment="Left">
-                        <Border.RenderTransform>
-                            <ScaleTransform ScaleX="1"/>
-                        </Border.RenderTransform>
-                        <ContentPresenter HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                    </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Trigger.EnterActions>
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="border"
-                                                     Storyboard.TargetProperty="RenderTransform.ScaleX"
-                                                     From="1" To="1.5" Duration="0:0:0.2"/>
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </Trigger.EnterActions>
-                            <Trigger.ExitActions>
-                                <BeginStoryboard>
-                                    <Storyboard>
-                                        <DoubleAnimation Storyboard.TargetName="border"
-                                                     Storyboard.TargetProperty="RenderTransform.ScaleX"
-                                                     From="1.5" To="1" Duration="0:0:0.2"/>
-                                    </Storyboard>
-                                </BeginStoryboard>
-                            </Trigger.ExitActions>
+                            <Setter Property="Content" Value="← 뒤로 가기"/>
+                            <Setter Property="Background" Value="#1E1E1E"/>
+                            <Setter Property="Foreground" Value="White"/>
                         </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>

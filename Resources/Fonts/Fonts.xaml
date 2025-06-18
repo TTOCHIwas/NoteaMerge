@@ -21,23 +21,23 @@
         <Setter Property="FontFamily" Value="pack://application:,,,/Resources/Fonts/#Pretendard Variable"/>
     </Style>
 
-    <Style TargetType="TextBlock" x:Key="titleStyle">
+    <Style TargetType="TextBlock" x:Key="titleStyle" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontSize" Value="24"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Margin" Value="0"/>
     </Style>
 
-    <Style TargetType="TextBlock" x:Key="subjectTitleStyle">
+    <Style TargetType="TextBlock" x:Key="subjectTitleStyle" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontSize" Value="16px"/>
         <Setter Property="FontWeight" Value="Bold"/>
     </Style>
 
-    <Style TargetType="TextBlock" x:Key="subjectCategoryStyle">
+    <Style TargetType="TextBlock" x:Key="subjectCategoryStyle" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontSize" Value="14px"/>
         <Setter Property="FontWeight" Value="Bold"/>
     </Style>
 
-    <Style TargetType="Label" x:Key="weekStyle">
+    <Style TargetType="Label" x:Key="weekStyle" BasedOn="{StaticResource {x:Type Label}}">
         <Setter Property="FontSize" Value="12"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="HorizontalAlignment" Value="Left"/>
@@ -46,37 +46,37 @@
 
     </Style>
 
-    <Style TargetType="TextBlock" x:Key="day">
+    <Style TargetType="TextBlock" x:Key="day" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontSize" Value="12"/>
         <Setter Property="FontWeight" Value="Medium"/>
     </Style>
 
-    <Style TargetType="TextBlock" x:Key="dayEvent">
+    <Style TargetType="TextBlock" x:Key="dayEvent" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontSize" Value="12"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="Foreground" Value="#ffffff"/>
     </Style>
 
-    <Style TargetType="TextBlock" x:Key="eventInfoTitle">
+    <Style TargetType="TextBlock" x:Key="eventInfoTitle" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontSize" Value="14"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
 
-    <Style TargetType="TextBlock" x:Key="memo">
+    <Style TargetType="TextBlock" x:Key="memo" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontSize" Value="16"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
 
-    <Style TargetType="TextBlock" x:Key="CalendarDayComment">
+    <Style TargetType="TextBlock" x:Key="CalendarDayComment" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontSize" Value="16"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
     </Style>
 
-    <Style TargetType="TextBox" x:Key="Note">
+    <Style TargetType="TextBox" x:Key="Note" BasedOn="{StaticResource {x:Type TextBox}}">
         <Setter Property="FontSize" Value="14"/>
         <Setter Property="FontWeight" Value="Medium"/>
     </Style>
-    <Style TargetType="TextBox" x:Key="tboxTitleStyle">
+    <Style TargetType="TextBox" x:Key="tboxTitleStyle" BasedOn="{StaticResource {x:Type TextBox}}">
         <Setter Property="FontSize" Value="24"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="BorderThickness" Value="0"/>
@@ -84,14 +84,14 @@
         <Setter Property="Margin" Value="0"/>
     </Style>
 
-    <Style TargetType="TextBox" x:Key="eventDetailInfo">
+    <Style TargetType="TextBox" x:Key="eventDetailInfo" BasedOn="{StaticResource {x:Type TextBox}}">
         <Setter Property="BorderThickness" Value="0.5"/>
         <Setter Property="BorderBrush" Value="gray"/>
         <Setter Property="FontWeight" Value="Medium"/>
     </Style>
 
 
-    <Style TargetType="TextBox" x:Key="comment">
+    <Style TargetType="TextBox" x:Key="comment" BasedOn="{StaticResource {x:Type TextBox}}">
         <Setter Property="FontSize" Value="16"/>
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="BorderThickness" Value="0"/>
