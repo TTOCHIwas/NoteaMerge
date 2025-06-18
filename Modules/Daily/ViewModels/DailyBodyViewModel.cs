@@ -258,7 +258,7 @@ namespace Notea.Modules.Daily.ViewModels
                     dailySubjectsWithGroups = new List<(string, double, int, List<TopicGroupData>)>();
                 }
 
-                // 안전하게 과목 추가
+                // 안전하게 과목 추가 또는 업데이트
                 foreach (var (subjectName, progress, studyTimeSeconds, topicGroupsData) in dailySubjectsWithGroups)
                 {
                     try
@@ -270,41 +270,64 @@ namespace Notea.Modules.Daily.ViewModels
                         }
                         processedSubjects.Add(subjectName);
 
-                        // 안전한 SubjectProgressViewModel 생성
-                        var newSubject = new SubjectProgressViewModel
-                        {
-                            SubjectName = subjectName
-                        };
+                        // ✅ 수정: 기존 과목이 있는지 확인
+                        var existingSubject = Subjects?.FirstOrDefault(s =>
+                            string.Equals(s.SubjectName, subjectName, StringComparison.OrdinalIgnoreCase));
 
-                        // 캐시된 값으로 안전하게 설정
-                        newSubject.SetCachedStudyTime(studyTimeSeconds);
-
-                        // TopicGroups 안전하게 설정
-                        newSubject._isUpdatingFromDatabase = true;
-                        try
+                        if (existingSubject != null)
                         {
+                            // ✅ 기존 과목이 있으면 UpdateFromDatabase 호출
+                            var topicGroups = new ObservableCollection<TopicGroupViewModel>();
                             foreach (var groupData in topicGroupsData)
                             {
                                 var topicGroup = new TopicGroupViewModel
                                 {
                                     GroupTitle = groupData.GroupTitle,
                                     TotalStudyTimeSeconds = groupData.TotalStudyTimeSeconds,
-                                    IsCompleted = groupData.IsCompleted
+                                    IsCompleted = groupData.IsCompleted,
+                                    CategoryId = groupData.CategoryId
                                 };
-                                newSubject.TopicGroups.Add(topicGroup);
+                                topicGroups.Add(topicGroup);
+                            }
+
+                            existingSubject.UpdateFromDatabase(studyTimeSeconds, topicGroups);
+                            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 기존 과목 업데이트됨: {subjectName}");
+                        }
+                        else
+                        {
+                            // ✅ 새 과목 생성 후 UpdateFromDatabase 호출
+                            var newSubject = new SubjectProgressViewModel
+                            {
+                                SubjectName = subjectName
+                            };
+
+                            var topicGroups = new ObservableCollection<TopicGroupViewModel>();
+                            foreach (var groupData in topicGroupsData)
+                            {
+                                var topicGroup = new TopicGroupViewModel
+                                {
+                                    GroupTitle = groupData.GroupTitle,
+                                    TotalStudyTimeSeconds = groupData.TotalStudyTimeSeconds,
+                                    IsCompleted = groupData.IsCompleted,
+                                    CategoryId = groupData.CategoryId
+                                };
+                                topicGroups.Add(topicGroup);
+                            }
+
+                            // ✅ UpdateFromDatabase 호출로 통합된 업데이트
+                            newSubject.UpdateFromDatabase(studyTimeSeconds, topicGroups);
+
+                            // Subjects 컬렉션에 추가
+                            if (Subjects != null)
+                            {
+                                Subjects.Add(newSubject);
+                                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 새 과목 안전하게 추가됨: {subjectName}");
                             }
                         }
-                        finally
-                        {
-                            newSubject._isUpdatingFromDatabase = false;
-                        }
-
-                        Subjects.Add(newSubject);
-                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 과목 안전하게 추가됨: {subjectName}");
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 과목 {subjectName} 추가 오류: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 과목 {subjectName} 처리 오류: {ex.Message}");
                     }
                 }
 
@@ -346,15 +369,27 @@ namespace Notea.Modules.Daily.ViewModels
                     Subjects.CollectionChanged -= Subjects_CollectionChanged;
                 }
 
-                // 기존 데이터 이동
+                // ✅ 수정: 기존 데이터를 UpdateFromDatabase로 병합
                 if (Subjects != null && Subjects.Count > 0)
                 {
                     var existingData = Subjects.ToList();
-                    foreach (var item in existingData)
+                    foreach (var existingItem in existingData)
                     {
-                        if (!sharedSubjects.Contains(item))
+                        // 공유 데이터에서 같은 과목 찾기
+                        var sharedItem = sharedSubjects.FirstOrDefault(s =>
+                            string.Equals(s.SubjectName, existingItem.SubjectName, StringComparison.OrdinalIgnoreCase));
+
+                        if (sharedItem != null)
                         {
-                            sharedSubjects.Add(item);
+                            // ✅ 기존 항목이 공유 데이터에 있으면 UpdateFromDatabase로 병합
+                            sharedItem.UpdateFromDatabase(existingItem.TodayStudyTimeSeconds, existingItem.TopicGroups);
+                            System.Diagnostics.Debug.WriteLine($"[SetSharedSubjects] 기존 데이터 병합: {existingItem.SubjectName}");
+                        }
+                        else
+                        {
+                            // 공유 데이터에 없는 항목은 추가
+                            sharedSubjects.Add(existingItem);
+                            System.Diagnostics.Debug.WriteLine($"[SetSharedSubjects] 새 항목 추가: {existingItem.SubjectName}");
                         }
                     }
                 }
@@ -515,7 +550,7 @@ namespace Notea.Modules.Daily.ViewModels
                     Subjects.Clear();
                 }
 
-                // 안전하게 과목 추가
+                // 안전하게 과목 추가 또는 업데이트
                 foreach (var (subjectName, progress, studyTimeSeconds, topicGroupsData) in dailySubjectsWithGroups)
                 {
                     try
@@ -527,20 +562,14 @@ namespace Notea.Modules.Daily.ViewModels
                         }
                         processedSubjects.Add(subjectName);
 
-                        // 안전한 SubjectProgressViewModel 생성
-                        var newSubject = new SubjectProgressViewModel
-                        {
-                            SubjectName = subjectName,
-                            TodayStudyTimeSeconds = studyTimeSeconds
-                        };
+                        // ✅ 수정: 기존 과목이 있는지 확인
+                        var existingSubject = Subjects?.FirstOrDefault(s =>
+                            string.Equals(s.SubjectName, subjectName, StringComparison.OrdinalIgnoreCase));
 
-                        // 캐시된 값으로 안전하게 설정
-                        newSubject.SetCachedStudyTime(studyTimeSeconds);
-
-                        // TopicGroups 안전하게 설정
-                        newSubject._isUpdatingFromDatabase = true;
-                        try
+                        if (existingSubject != null)
                         {
+                            // ✅ 기존 과목이 있으면 UpdateFromDatabase 호출
+                            var topicGroups = new ObservableCollection<TopicGroupViewModel>();
                             foreach (var groupData in topicGroupsData)
                             {
                                 var topicGroup = new TopicGroupViewModel
@@ -548,26 +577,49 @@ namespace Notea.Modules.Daily.ViewModels
                                     GroupTitle = groupData.GroupTitle,
                                     TotalStudyTimeSeconds = groupData.TotalStudyTimeSeconds,
                                     IsCompleted = groupData.IsCompleted,
-                                    CategoryId = groupData.CategoryId // ✅ 이제 오류 없음
+                                    CategoryId = groupData.CategoryId
                                 };
-                                newSubject.TopicGroups.Add(topicGroup);
+                                topicGroups.Add(topicGroup);
                             }
-                        }
-                        finally
-                        {
-                            newSubject._isUpdatingFromDatabase = false;
-                        }
 
-                        // Subjects 컬렉션에 추가
-                        if (Subjects != null)
+                            existingSubject.UpdateFromDatabase(studyTimeSeconds, topicGroups);
+                            System.Diagnostics.Debug.WriteLine($"[Phase2] 기존 과목 업데이트됨: {subjectName} (TopicGroups: {topicGroups.Count}개)");
+                        }
+                        else
                         {
-                            Subjects.Add(newSubject);
-                            System.Diagnostics.Debug.WriteLine($"[Phase2] 과목 추가됨: {subjectName} (TopicGroups: {newSubject.TopicGroups.Count}개)");
+                            // ✅ 새 과목 생성 후 UpdateFromDatabase 호출
+                            var newSubject = new SubjectProgressViewModel
+                            {
+                                SubjectName = subjectName
+                            };
+
+                            var topicGroups = new ObservableCollection<TopicGroupViewModel>();
+                            foreach (var groupData in topicGroupsData)
+                            {
+                                var topicGroup = new TopicGroupViewModel
+                                {
+                                    GroupTitle = groupData.GroupTitle,
+                                    TotalStudyTimeSeconds = groupData.TotalStudyTimeSeconds,
+                                    IsCompleted = groupData.IsCompleted,
+                                    CategoryId = groupData.CategoryId
+                                };
+                                topicGroups.Add(topicGroup);
+                            }
+
+                            // ✅ UpdateFromDatabase 호출로 통합된 업데이트
+                            newSubject.UpdateFromDatabase(studyTimeSeconds, topicGroups);
+
+                            // Subjects 컬렉션에 추가
+                            if (Subjects != null)
+                            {
+                                Subjects.Add(newSubject);
+                                System.Diagnostics.Debug.WriteLine($"[Phase2] 새 과목 추가됨: {subjectName} (TopicGroups: {topicGroups.Count}개)");
+                            }
                         }
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[Phase2] 과목 {subjectName} 추가 오류: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[Phase2] 과목 {subjectName} 처리 오류: {ex.Message}");
                         // 개별 과목 오류는 무시하고 계속 진행
                     }
                 }

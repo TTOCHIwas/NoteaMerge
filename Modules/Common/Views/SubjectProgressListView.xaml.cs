@@ -306,14 +306,58 @@ namespace Notea.Modules.Common.Views
 
                 if (existingSubject == null)
                 {
-                    // ✅ 새 과목 생성 (시간은 TodayStudyTimeSeconds에서 자동 조회)
+                    // ✅ 수정: 새 과목 생성 후 UpdateFromDatabase 호출
                     var newSubjectProgress = new SubjectProgressViewModel
                     {
                         SubjectName = droppedSubject.SubjectName
                     };
 
-                    targetCollection.Add(newSubjectProgress);
-                    System.Diagnostics.Debug.WriteLine($"[DragDrop] 과목 '{droppedSubject.SubjectName}' 추가됨 (시간 자동 조회: {newSubjectProgress.TodayStudyTimeSeconds}초)");
+                    // ✅ DB에서 최신 데이터 조회하여 UpdateFromDatabase 호출
+                    try
+                    {
+                        var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                        var today = DateTime.Today;
+
+                        // 실제 측정 시간 조회
+                        var studyTimeSeconds = dbHelper.GetSubjectDailyTimeSeconds(today, droppedSubject.SubjectName);
+
+                        // TopicGroups 데이터 조회
+                        var topicGroupsData = new ObservableCollection<TopicGroupViewModel>();
+
+                        // droppedSubject의 TopicGroups를 기반으로 새로운 TopicGroupViewModel 생성
+                        foreach (var sourceGroup in droppedSubject.TopicGroups)
+                        {
+                            var categorySeconds = sourceGroup.CategoryId > 0
+                                ? dbHelper.GetCategoryDailyTimeSeconds(today, sourceGroup.CategoryId)
+                                : dbHelper.GetDailyTopicGroupStudyTimeSeconds(today, droppedSubject.SubjectName, sourceGroup.GroupTitle);
+
+                            var topicGroup = new TopicGroupViewModel
+                            {
+                                GroupTitle = sourceGroup.GroupTitle,
+                                TotalStudyTimeSeconds = categorySeconds,
+                                CategoryId = sourceGroup.CategoryId,
+                                ParentSubjectName = droppedSubject.SubjectName,
+                                Topics = new ObservableCollection<Notea.Modules.Subjects.Models.TopicItem>()
+                            };
+
+                            topicGroupsData.Add(topicGroup);
+                        }
+
+                        // ✅ UpdateFromDatabase 호출로 통합된 업데이트
+                        newSubjectProgress.UpdateFromDatabase(studyTimeSeconds, topicGroupsData);
+
+                        targetCollection.Add(newSubjectProgress);
+                        System.Diagnostics.Debug.WriteLine($"[DragDrop] 과목 '{droppedSubject.SubjectName}' 추가됨 (UpdateFromDatabase 사용: {studyTimeSeconds}초, TopicGroups: {topicGroupsData.Count}개)");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DragDrop] 과목 '{droppedSubject.SubjectName}' 추가 중 오류: {ex.Message}");
+
+                        // 오류 발생 시 기본값으로 추가
+                        var emptyTopicGroups = new ObservableCollection<TopicGroupViewModel>();
+                        newSubjectProgress.UpdateFromDatabase(0, emptyTopicGroups);
+                        targetCollection.Add(newSubjectProgress);
+                    }
                 }
                 else
                 {
@@ -342,12 +386,109 @@ namespace Notea.Modules.Common.Views
 
                     if (existingSubject != null)
                     {
-                        // 기존 과목에 TopicGroup 추가
+                        // ✅ 수정: 기존 과목에 TopicGroup 추가 시 UpdateFromDatabase 사용
                         var existingTopic = existingSubject.TopicGroups.FirstOrDefault(t =>
                             string.Equals(t.GroupTitle, droppedTopic.GroupTitle, StringComparison.OrdinalIgnoreCase));
 
                         if (existingTopic == null)
                         {
+                            try
+                            {
+                                var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                                var today = DateTime.Today;
+
+                                // 기존 TopicGroups에 새로운 TopicGroup 추가
+                                var updatedTopicGroups = new ObservableCollection<TopicGroupViewModel>(existingSubject.TopicGroups);
+
+                                // 새 TopicGroup 생성
+                                var categorySeconds = droppedTopic.CategoryId > 0
+                                    ? dbHelper.GetCategoryDailyTimeSeconds(today, droppedTopic.CategoryId)
+                                    : dbHelper.GetDailyTopicGroupStudyTimeSeconds(today, effectiveParentName, droppedTopic.GroupTitle);
+
+                                var newTopicGroup = new TopicGroupViewModel
+                                {
+                                    GroupTitle = droppedTopic.GroupTitle,
+                                    TotalStudyTimeSeconds = categorySeconds,
+                                    CategoryId = droppedTopic.CategoryId,
+                                    ParentSubjectName = effectiveParentName,
+                                    Topics = new ObservableCollection<Notea.Modules.Subjects.Models.TopicItem>()
+                                };
+
+                                updatedTopicGroups.Add(newTopicGroup);
+
+                                // ✅ UpdateFromDatabase로 통합 업데이트
+                                existingSubject.UpdateFromDatabase(existingSubject.TodayStudyTimeSeconds, updatedTopicGroups);
+
+                                System.Diagnostics.Debug.WriteLine($"[DragDrop] 기존 과목 '{effectiveParentName}'에 TopicGroup '{droppedTopic.GroupTitle}' 추가됨 (UpdateFromDatabase 사용)");
+                            }
+                            catch (Exception ex)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"[DragDrop] TopicGroup 추가 중 오류: {ex.Message}");
+
+                                // 오류 발생 시 기본 방식으로 추가
+                                var newTopicGroup = new TopicGroupViewModel
+                                {
+                                    GroupTitle = droppedTopic.GroupTitle,
+                                    ParentSubjectName = effectiveParentName,
+                                    Topics = new ObservableCollection<Notea.Modules.Subjects.Models.TopicItem>()
+                                };
+
+                                newTopicGroup.SetParentTodayStudyTime(existingSubject.TodayStudyTimeSeconds);
+                                existingSubject.TopicGroups.Add(newTopicGroup);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // ✅ 수정: 새 과목과 TopicGroup 함께 추가 시 UpdateFromDatabase 사용
+                        try
+                        {
+                            var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                            var today = DateTime.Today;
+
+                            // 과목의 실제 측정 시간 조회
+                            var subjectStudyTimeSeconds = dbHelper.GetSubjectDailyTimeSeconds(today, effectiveParentName);
+
+                            // TopicGroup 시간 조회
+                            var categorySeconds = droppedTopic.CategoryId > 0
+                                ? dbHelper.GetCategoryDailyTimeSeconds(today, droppedTopic.CategoryId)
+                                : dbHelper.GetDailyTopicGroupStudyTimeSeconds(today, effectiveParentName, droppedTopic.GroupTitle);
+
+                            // 새 과목 생성
+                            var newSubjectProgress = new SubjectProgressViewModel
+                            {
+                                SubjectName = effectiveParentName
+                            };
+
+                            // TopicGroups 컬렉션 생성
+                            var topicGroups = new ObservableCollection<TopicGroupViewModel>();
+                            var newTopicGroup = new TopicGroupViewModel
+                            {
+                                GroupTitle = droppedTopic.GroupTitle,
+                                TotalStudyTimeSeconds = categorySeconds,
+                                CategoryId = droppedTopic.CategoryId,
+                                ParentSubjectName = effectiveParentName,
+                                Topics = new ObservableCollection<Notea.Modules.Subjects.Models.TopicItem>()
+                            };
+                            topicGroups.Add(newTopicGroup);
+
+                            // ✅ UpdateFromDatabase로 통합 업데이트
+                            newSubjectProgress.UpdateFromDatabase(subjectStudyTimeSeconds, topicGroups);
+
+                            targetCollection.Add(newSubjectProgress);
+
+                            System.Diagnostics.Debug.WriteLine($"[DragDrop] 새 과목 '{effectiveParentName}'과 TopicGroup '{droppedTopic.GroupTitle}' 추가됨 (UpdateFromDatabase 사용)");
+                        }
+                        catch (Exception ex)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[DragDrop] 새 과목과 TopicGroup 추가 중 오류: {ex.Message}");
+
+                            // 오류 발생 시 기본 방식으로 추가
+                            var newSubjectProgress = new SubjectProgressViewModel
+                            {
+                                SubjectName = effectiveParentName
+                            };
+
                             var newTopicGroup = new TopicGroupViewModel
                             {
                                 GroupTitle = droppedTopic.GroupTitle,
@@ -355,32 +496,10 @@ namespace Notea.Modules.Common.Views
                                 Topics = new ObservableCollection<Notea.Modules.Subjects.Models.TopicItem>()
                             };
 
-                            newTopicGroup.SetParentTodayStudyTime(existingSubject.TodayStudyTimeSeconds);
-                            existingSubject.TopicGroups.Add(newTopicGroup);
-
-                            System.Diagnostics.Debug.WriteLine($"[DragDrop] 기존 과목 '{effectiveParentName}'에 TopicGroup '{droppedTopic.GroupTitle}' 추가됨");
+                            newTopicGroup.SetParentTodayStudyTime(newSubjectProgress.TodayStudyTimeSeconds);
+                            newSubjectProgress.TopicGroups.Add(newTopicGroup);
+                            targetCollection.Add(newSubjectProgress);
                         }
-                    }
-                    else
-                    {
-                        // 새 과목과 TopicGroup 함께 추가
-                        var newSubjectProgress = new SubjectProgressViewModel
-                        {
-                            SubjectName = effectiveParentName
-                        };
-
-                        var newTopicGroup = new TopicGroupViewModel
-                        {
-                            GroupTitle = droppedTopic.GroupTitle,
-                            ParentSubjectName = effectiveParentName,
-                            Topics = new ObservableCollection<Notea.Modules.Subjects.Models.TopicItem>()
-                        };
-
-                        newTopicGroup.SetParentTodayStudyTime(newSubjectProgress.TodayStudyTimeSeconds);
-                        newSubjectProgress.TopicGroups.Add(newTopicGroup);
-                        targetCollection.Add(newSubjectProgress);
-
-                        System.Diagnostics.Debug.WriteLine($"[DragDrop] 새 과목 '{effectiveParentName}'과 TopicGroup '{droppedTopic.GroupTitle}' 추가됨");
                     }
                 }
             }

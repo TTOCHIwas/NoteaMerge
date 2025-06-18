@@ -402,7 +402,7 @@ namespace Notea.ViewModels
                 BodyContent = _subjectBodyView;
 
                 SidebarViewModel.SetContext("today");
-
+                SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
                 SidebarViewModel.RefreshData();
 
                 _subjectListPageVM?.RefreshData();
@@ -419,14 +419,12 @@ namespace Notea.ViewModels
         {
             try
             {
-                // ✅ 필기 화면에서 나갈 때 저장 로직 추가
                 SaveCurrentNotePageIfExists();
 
                 HeaderContent = _dailyHeaderView;
                 BodyContent = _dailyBodyView;
                 SidebarViewModel.SetContext("main");
 
-                // ✅ 사이드바 데이터 새로고침 추가
                 SidebarViewModel.RefreshData();
 
                 System.Diagnostics.Debug.WriteLine("[MainViewModel] 오늘 페이지로 이동");
@@ -706,38 +704,62 @@ namespace Notea.ViewModels
                 var today = DateTime.Today;
                 int totalTodaySeconds = 0;
 
-                // 1. 모든 과목의 오늘 학습시간 업데이트
+                System.Diagnostics.Debug.WriteLine("[Progress] 전체 진행률 업데이트 시작");
+
+                // 모든 과목의 오늘 학습시간과 TopicGroups 업데이트
                 foreach (var subject in SharedSubjectProgress)
                 {
-                    // 과목별 실제 측정 시간 조회
+                    // ✅ 수정: 과목별 실제 측정 시간 조회
                     var subjectSeconds = Notea.Modules.Common.Helpers.DatabaseHelper.Instance.GetSubjectDailyTimeSeconds(today, subject.SubjectName);
-                    subject.TodayStudyTimeSeconds = subjectSeconds;
                     totalTodaySeconds += subjectSeconds;
 
-                    System.Diagnostics.Debug.WriteLine($"[Progress] 과목 '{subject.SubjectName}' 업데이트: {subjectSeconds}초");
+                    // ✅ 수정: 기존 TopicGroups를 기반으로 시간만 업데이트
+                    var topicGroupsData = new ObservableCollection<TopicGroupViewModel>();
 
-                    // 2. 각 과목의 TopicGroups 업데이트
-                    foreach (var topicGroup in subject.TopicGroups)
+                    try
                     {
-                        // 분류별 실제 측정 시간 조회
-                        var categorySeconds = topicGroup.CategoryId > 0
-                            ? Notea.Modules.Common.Helpers.DatabaseHelper.Instance.GetCategoryDailyTimeSeconds(today, topicGroup.CategoryId)
-                            : GetTopicGroupTimeByName(today, subject.SubjectName, topicGroup.GroupTitle);
+                        var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
 
-                        // TopicGroup 시간 업데이트
-                        topicGroup.SetParentTodayStudyTime(subjectSeconds);
-
-                        // 실시간 표시 업데이트
-                        if (topicGroup.GetType().GetMethod("UpdateRealTimeDisplay") != null)
+                        // 기존 TopicGroups를 순회하며 최신 시간으로 업데이트
+                        foreach (var existingGroup in subject.TopicGroups)
                         {
-                            topicGroup.GetType().GetMethod("UpdateRealTimeDisplay").Invoke(topicGroup, null);
-                        }
+                            // 분류별 실제 측정 시간 조회
+                            var categorySeconds = existingGroup.CategoryId > 0
+                                ? dbHelper.GetCategoryDailyTimeSeconds(today, existingGroup.CategoryId)
+                                : GetTopicGroupTimeByName(today, subject.SubjectName, existingGroup.GroupTitle);
 
-                        System.Diagnostics.Debug.WriteLine($"[Progress] 분류 '{topicGroup.GroupTitle}' 업데이트: {categorySeconds}초, 진행률: {topicGroup.ProgressRatio:P1}");
+                            var updatedTopicGroup = new TopicGroupViewModel
+                            {
+                                GroupTitle = existingGroup.GroupTitle,
+                                TotalStudyTimeSeconds = categorySeconds,
+                                IsCompleted = existingGroup.IsCompleted,
+                                CategoryId = existingGroup.CategoryId,
+                                ParentSubjectName = subject.SubjectName,
+                                Topics = existingGroup.Topics
+                            };
+
+                            // 부모 과목의 오늘 학습시간 설정
+                            updatedTopicGroup.SetParentTodayStudyTime(subjectSeconds);
+
+                            topicGroupsData.Add(updatedTopicGroup);
+
+                            System.Diagnostics.Debug.WriteLine($"[Progress] 분류 '{updatedTopicGroup.GroupTitle}' 시간 업데이트: {categorySeconds}초");
+                        }
                     }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[Progress] 과목 '{subject.SubjectName}' TopicGroups 업데이트 오류: {ex.Message}");
+                        // 오류 발생 시 기존 TopicGroups 유지
+                        topicGroupsData = subject.TopicGroups;
+                    }
+
+                    // ✅ 핵심 수정: UpdateFromDatabase 메서드 호출
+                    subject.UpdateFromDatabase(subjectSeconds, topicGroupsData);
+
+                    System.Diagnostics.Debug.WriteLine($"[Progress] 과목 '{subject.SubjectName}' 업데이트 완료: {subjectSeconds}초, TopicGroups: {topicGroupsData.Count}개");
                 }
 
-                // 3. 전체 통계 업데이트
+                // 전체 통계 업데이트
                 OnPropertyChanged(nameof(TotalStudyTimeDisplay));
 
                 System.Diagnostics.Debug.WriteLine($"[Progress] 전체 업데이트 완료 - 총 시간: {TimeSpan.FromSeconds(totalTodaySeconds):hh\\:mm\\:ss}");
@@ -748,7 +770,6 @@ namespace Notea.ViewModels
             }
         }
 
-        // ✅ 신규: 누락된 메소드 구현
         private int GetTopicGroupTimeByName(DateTime date, string subjectName, string groupTitle)
         {
             try
@@ -762,6 +783,9 @@ namespace Notea.ViewModels
                 return 0;
             }
         }
+
+        // ✅ 신규: 누락된 메소드 구현
+
 
         // 🆕 저장된 Daily Subject 데이터 복원 메소드 (실제 측정 시간만)
         private void RestoreDailySubjects()

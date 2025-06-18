@@ -7,6 +7,7 @@ using Notea.Modules.Subjects.Models;
 using Notea.Modules.Subjects.ViewModels;
 using Notea.Modules.Common.Helpers;
 using Notea.Modules.Daily.ViewModels;
+using System.Diagnostics;
 
 namespace Notea.Modules.Common.ViewModels
 {
@@ -159,7 +160,7 @@ namespace Notea.Modules.Common.ViewModels
         // 데이터 새로고침 메서드
         public void RefreshData()
         {
-            if (SidebarTitle == "과목")
+            if (SidebarTitle == "오늘 할 일")
             {
                 LoadSubjectsFromDatabase();
             }
