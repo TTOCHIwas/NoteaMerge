@@ -324,6 +324,7 @@ namespace Notea.ViewModels
                 // 필기 내용 저장
                 if (_notePageVM != null)
                 {
+                    _notePageVM.EditorViewModel?.ForceFullSave();
                     _notePageVM.SaveChanges();
                 }
 

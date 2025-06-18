@@ -116,7 +116,8 @@ namespace Notea.Modules.Subject.Views
 
                 if (result.Rows.Count > 0)
                 {
-                    return result.Rows[0]["title"].ToString();
+                    // 수정: "title" → "Name"
+                    return result.Rows[0]["Name"].ToString();
                 }
 
                 return null;
