@@ -64,7 +64,7 @@ namespace Notea.Modules.Monthly.ViewModels
                     }
                     else
                     {
-                        month.Comment = "comment";
+                        month.Comment = "";
                     }
                 }
             }

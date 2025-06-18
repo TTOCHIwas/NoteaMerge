@@ -78,7 +78,8 @@
          Foreground="#555555"
          VerticalContentAlignment="Center"
          Text="{Binding NewSubjectText, UpdateSourceTrigger=PropertyChanged}"
-                     IsVisibleChanged="SubjectAddBox_IsVisibleChanged">
+                     IsVisibleChanged="SubjectAddBox_IsVisibleChanged"
+                             KeyDown="SubjectAddBox_KeyDown">
                         <TextBox.InputBindings>
                             <KeyBinding Key="Enter" Command="{Binding AddSubjectCommand}" />
                         </TextBox.InputBindings>

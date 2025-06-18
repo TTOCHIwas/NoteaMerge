@@ -27,8 +27,7 @@
         <TextBlock Grid.Column="1"
                    HorizontalAlignment="Center"
                    VerticalAlignment="Center"
-                   Style="{StaticResource CalendarDayComment}"
-                   x:Name="MonthlyComment"
-                   Text="{Binding Comment}"/>
+                   Style="{StaticResource monthComment}"
+                   x:Name="MonthlyComment"/>
     </Grid>
 </UserControl>

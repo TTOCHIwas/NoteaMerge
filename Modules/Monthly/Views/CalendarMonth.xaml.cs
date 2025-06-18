@@ -36,7 +36,6 @@ namespace Notea.Modules.Monthly.Views
                     OnPropertyChanged(() => CurrentDate);
                     SetDateByCurrentDate();
                     LoadEvents();
-                    LoadMonthComment(); // 추가
                     DrawDays();
                 }
                 // ✅ 수정: MonthlyPlanViewModel의 LoadMonthComment 호출
@@ -327,11 +326,21 @@ namespace Notea.Modules.Monthly.Views
             DateTime firstDayOfMonth = new DateTime(CurrentDate.Year, CurrentDate.Month, 1);
             DateTime lastDayOfMonth = firstDayOfMonth.AddMonths(1).AddDays(-1);
 
+            var commentsForMonth = DatabaseHelper.GetCommentsForMonth(CurrentDate.Year, CurrentDate.Month);
+
             for (DateTime date = firstDayOfMonth; date.Date <= lastDayOfMonth; date = date.AddDays(1))
             {
                 CalendarDay newDay = new CalendarDay();
                 newDay.Date = date;
                 newDay.AddEventRequested += OnDayAddEventRequested;
+                //  해당 날짜의 코멘트를 찾아 DayComment 속성에 할당합니다.
+                string dateKey = date.ToString("yyyy-MM-dd");
+                if (commentsForMonth.ContainsKey(dateKey))
+                {
+                    newDay.DayComment = commentsForMonth[dateKey];
+                }
+
+
                 DaysInCurrentMonth.Add(newDay);
             }
 
@@ -459,10 +468,26 @@ namespace Notea.Modules.Monthly.Views
                 throw new ArgumentException("Events must be IEnumerable<ICalendarEvent>");
             }
         }
+        // Modules/Monthly/Views/CalendarMonth.xaml.cs
 
-        private void TextBox_TextChanged(object sender, TextChangedEventArgs e)
+        private void CommentTextBox_KeyDown(object sender, KeyEventArgs e)
         {
+            if (e.Key == Key.Enter)
+            {
+                if (Keyboard.Modifiers == ModifierKeys.None)
+                {
+                    if (this.DataContext is MonthlyPlanViewModel vm)
+                    {
+                        vm.SaveMonthComment(this.CurrentDate);
 
+                        FocusManager.SetFocusedElement(FocusManager.GetFocusScope(sender as TextBox), null);
+
+                        Window.GetWindow(this)?.Focus();
+
+                        e.Handled = true;
+                    }
+                }
+            }
         }
 
         public void LoadEvents()
@@ -489,75 +514,14 @@ namespace Notea.Modules.Monthly.Views
             DrawDays(); // 이 메서드가 Events를 다시 호출하지 않도록 확인 필요
         }
 
-        private string _monthComment;
-        public string MonthComment
-        {
-            get => _monthComment;
-            set
-            {
-                if (_monthComment != value)
-                {
-                    _monthComment = value;
-                    OnPropertyChanged(() => MonthComment);
-                }
-            }
-        }
-
-        public void LoadMonthComment()
-        {
-            try
-            {
-                // 현재 월의 첫 날로 날짜 설정
-                DateTime monthDate = new DateTime(CurrentDate.Year, CurrentDate.Month, 1);
-
-                string query = $@"
-                SELECT comment 
-                FROM monthlyComment 
-                WHERE date(monthDate) = date('{monthDate:yyyy-MM-dd}')";
-
-                var result = DatabaseHelper.ExecuteSelect(query);
-                if (result.Rows.Count > 0)
-                {
-                    MonthComment = result.Rows[0]["comment"]?.ToString() ?? "";
-                }
-                else
-                {
-                    MonthComment = "";
-                }
-
-                Debug.WriteLine($"[COMMENT] {CurrentDate:yyyy-MM} 코멘트 로드: {MonthComment}");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[ERROR] 월별 코멘트 로드 실패: {ex.Message}");
-                MonthComment = "";
-            }
-        }
-
-        // Comment 저장
-        private void SaveMonthComment()
-        {
-            try
-            {
-                DateTime monthDate = new DateTime(CurrentDate.Year, CurrentDate.Month, 1);
-
-                string query = $@"
-                INSERT OR REPLACE INTO monthlyComment (monthDate, comment)
-                VALUES ('{monthDate:yyyy-MM-dd}', '{MonthComment?.Replace("'", "''")}')";
-
-                DatabaseHelper.ExecuteNonQuery(query);
-                Debug.WriteLine($"[COMMENT] {CurrentDate:yyyy-MM} 코멘트 저장: {MonthComment}");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[ERROR] 월별 코멘트 저장 실패: {ex.Message}");
-            }
-        }
-
         // TextBox LostFocus 이벤트 핸들러
         private void CommentTextBox_LostFocus(object sender, RoutedEventArgs e)
         {
-            SaveMonthComment();
+            // DataContext를 ViewModel로 캐스팅하여 SaveMonthComment 메서드 호출
+            if (this.DataContext is MonthlyPlanViewModel vm)
+            {
+                vm.SaveMonthComment(this.CurrentDate);
+            }
         }
 
     }

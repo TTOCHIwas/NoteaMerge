@@ -86,8 +86,8 @@
     </Style>
 
     <Style TargetType="TextBlock" x:Key="CalendarDayComment" BasedOn="{StaticResource {x:Type TextBlock}}">
-        <Setter Property="FontSize" Value="16"/>
-        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="FontSize" Value="14"/>
+        <Setter Property="FontWeight" Value="Medium"/>
     </Style>
 
     <Style TargetType="TextBox" x:Key="Note" BasedOn="{StaticResource {x:Type TextBox}}">
@@ -114,6 +114,20 @@
         <Setter Property="FontWeight" Value="SemiBold"/>
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="BorderBrush" Value="Transparent"/>
+    </Style>
+
+    <Style TargetType="TextBlock" x:Key="monthComment" BasedOn="{StaticResource {x:Type TextBlock}}">
+        <Setter Property="FontSize" Value="16"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Text" Value="{Binding Comment}" />
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding Comment}" Value="">
+
+                <Setter Property="Text" Value="comment" />
+                <Setter Property="Foreground" Value="Black" />
+
+            </DataTrigger>
+        </Style.Triggers>
     </Style>
 
 </ResourceDictionary>

@@ -641,10 +641,6 @@ private UserControl _headerContent;
                 DateTime targetDate = new DateTime(year, selectedMonth.Month, 1);
                 _calendarMonthView.CurrentDate = targetDate;
 
-                // 캘린더 데이터 새로고침
-                _calendarMonthView.LoadEvents();
-                _calendarMonthView.LoadMonthComment();
-
                 // 사이드바 컨텍스트 변경
                 SidebarViewModel.SetContext("calendar");
 

@@ -12,6 +12,7 @@
 
     <UserControl.Resources>
         <local:MonthNumberToNameConverter x:Key="MonthNumberToNameConverter"/>
+        <local:StringNullOrEmptyToVisibilityConverter x:Key="StringNullOrEmptyToVisibilityConverter" />
     </UserControl.Resources>
 
     <Grid Margin="2">
@@ -36,13 +37,28 @@
                 <Button Style="{StaticResource UpButtonStyle}" Click="NextMonthButton_OnClick"/>
             </StackPanel>
 
-            <TextBox Grid.Column="1" 
+            <Grid Grid.Column="1">
+                <TextBox 
                      x:Name="CommentTextBox"
                      Style="{StaticResource comment}" 
                      Text="{Binding MonthComment, UpdateSourceTrigger=PropertyChanged}"
                      HorizontalAlignment="Right" 
                      VerticalAlignment="center"
+                     KeyDown="CommentTextBox_KeyDown"
+                     MinWidth="70"
+                     controls:PlaceholderHelper.Placeholder="comment"
                      LostFocus="CommentTextBox_LostFocus"/>
+
+                <!-- Placeholder (TextBox 위에 겹치기) -->
+                <TextBlock Text="comment"
+           FontSize="16"
+           FontWeight="Bold"
+           Foreground="#555555"
+           IsHitTestVisible="False"
+            HorizontalAlignment="Right"
+            VerticalAlignment="center"
+           Visibility="{Binding Text, ElementName=CommentTextBox, Converter={StaticResource StringNullOrEmptyToVisibilityConverter}}"/>
+            </Grid>
 
 
             <!--<Grid Grid.Column="1" Margin="50,0,50,0">

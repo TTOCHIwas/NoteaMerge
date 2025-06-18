@@ -667,7 +667,7 @@ namespace Notea.Modules.Daily.ViewModels
                 if (!IsToday) return "총 학습 시간";
 
                 var dday = _db.GetNextDDay();
-                return dday?.Title ?? "-"; // D-Day 이벤트가 있으면 제목, 없으면 "-"
+                return dday?.Title ?? ""; // D-Day 이벤트가 있으면 제목, 없으면 ""
             }
         }
 
@@ -693,7 +693,7 @@ namespace Notea.Modules.Daily.ViewModels
                 }
 
                 // D-Day가 없으면 "-"를 반환합니다.
-                return "-";
+                return "일정 없음";
             }
         }
 

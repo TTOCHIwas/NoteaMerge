@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.Globalization;
 using System.Linq;
 using System.Text;
@@ -20,12 +21,35 @@ namespace Notea.Modules.Monthly.Views
     /// <summary>
     /// CalendarDay.xaml에 대한 상호 작용 논리
     /// </summary>
-    public partial class CalendarDay : UserControl
+    public partial class CalendarDay : UserControl, INotifyPropertyChanged
     {
         public DateTime Date { get; set; }
         static DateTime Today = DateTime.Now;
         public string Title { get; set; }
+
+        private string _dayComment;
+        public string DayComment
+        {
+            get => _dayComment;
+            set
+            {
+                if (_dayComment != value)
+                {
+                    _dayComment = value;
+                    OnPropertyChanged(nameof(DayComment));
+                }
+            }
+        }
+
         public event Action<DateTime>? AddEventRequested;
+         public event PropertyChangedEventHandler PropertyChanged;
+
+        protected void OnPropertyChanged(string name)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+        }
+
+
         public CalendarDay()
         {
             InitializeComponent();

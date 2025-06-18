@@ -186,7 +186,8 @@
                         <svgc:SvgViewbox Grid.Column="0" Source="/Resources/Images/check_default.svg" Width="18" Height="18" Margin="20,0"/>
                         <TextBox x:Name="TodoAddBox" Grid.Column="1" BorderThickness="0" Background="Transparent" FontSize="16" FontWeight="SemiBold" FontFamily="Pretendard"
                                  Foreground="#555555" VerticalContentAlignment="Center" Text="{Binding NewTodoText, UpdateSourceTrigger=PropertyChanged}"
-                                 IsVisibleChanged="TodoAddBox_IsVisibleChanged">
+                                 IsVisibleChanged="TodoAddBox_IsVisibleChanged"
+                                 KeyDown="TodoAddBox_KeyDown">
                             <TextBox.InputBindings>
                                 <KeyBinding Key="Enter" Command="{Binding AddTodoCommand}" />
                             </TextBox.InputBindings>
