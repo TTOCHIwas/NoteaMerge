@@ -169,7 +169,7 @@ private UserControl _headerContent;
             _calendarMonthView = new CalendarMonth { DataContext = _monthlyPlanVM };
 
             // ✅ 수정: YearMonthListView DataContext 제거 (생성자에서 이미 설정됨)
-            _yearMonthListView = new YearMonthListView();
+            _yearMonthListView = new YearMonthListView { DataContext =_yearMonthListVM};
 
             // 초기 화면 설정 (Daily 화면)
             HeaderContent = _dailyHeaderView;
@@ -219,6 +219,7 @@ private UserControl _headerContent;
         {
             try
             {
+                IsHeaderVisible=true; // 헤더 표시
                 HeaderContent = _dailyHeaderView;
                 BodyContent = _dailyBodyView;
                 SidebarViewModel.SetContext("main");
@@ -250,6 +251,7 @@ private UserControl _headerContent;
                 System.Diagnostics.Debug.WriteLine($"[Navigation] 캘린더로 이동 - 날짜: {selectedDate?.ToShortDateString() ?? "파싱 실패"}");
 
                 IsHeaderVisible = false;
+                HeaderContent = null; // 헤더 숨김
                 BodyContent = _calendarMonthView;
 
                 if (selectedDate.HasValue)

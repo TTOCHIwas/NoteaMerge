@@ -25,7 +25,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
-        //this.DataContext = new MainViewModel(); // 반드시 있어야 함
+        this.DataContext = new MainViewModel(); // 반드시 있어야 함
 
 
         // 앱 종료 시 타이머 저장 보장

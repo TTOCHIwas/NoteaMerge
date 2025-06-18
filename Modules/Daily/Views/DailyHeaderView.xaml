@@ -7,11 +7,6 @@
              mc:Ignorable="d"
              d:DesignHeight="100">
 
-    <!-- ViewModel 연결 -->
-    <UserControl.DataContext>
-        <vm:DailyHeaderViewModel />
-    </UserControl.DataContext>
-
     <Border BorderBrush="#555555" BorderThickness="0,0,0,2">
         <Grid Margin="20,10">
             <!--  상단 타이틀 + 날짜 -->
