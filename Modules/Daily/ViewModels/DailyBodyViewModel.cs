@@ -108,6 +108,8 @@ namespace Notea.Modules.Daily.ViewModels
 
         public void InitializeDataWhenReady()
         {
+            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] InitializeDataWhenReady 호출 - _hasLoadedOnce: {_hasLoadedOnce}");
+
             if (_hasLoadedOnce)
             {
                 System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 이미 로드 완료됨 - 스킵");
@@ -120,20 +122,16 @@ namespace Notea.Modules.Daily.ViewModels
 
         public void LoadDailyDataSafe(DateTime date)
         {
-            System.Diagnostics.Debug.WriteLine($"[DIAGNOSIS] LoadDailyDataSafe 시작 - 날짜: {date.ToShortDateString()}");
-            System.Diagnostics.Debug.WriteLine($"[DIAGNOSIS] _hasLoadedOnce: {_hasLoadedOnce}");
-            System.Diagnostics.Debug.WriteLine($"[DIAGNOSIS] TodoList.Count: {TodoList?.Count ?? -1}");
-            System.Diagnostics.Debug.WriteLine($"[DIAGNOSIS] Comment: '{Comment}'");
+            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] LoadDailyDataSafe 호출 - 날짜: {date.ToShortDateString()}");
 
             try
             {
+                // 중복 로딩 방지 강화
                 if (SelectedDate.Date == date.Date && _hasLoadedOnce && (TodoList?.Count > 0 || !string.IsNullOrEmpty(Comment)))
                 {
-                    System.Diagnostics.Debug.WriteLine("[DIAGNOSIS] 중복 로딩 방지 조건에 걸려서 스킵됨");
+                    System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 이미 로드된 데이터 존재 - 안전한 로딩 스킵");
                     return;
                 }
-
-                System.Diagnostics.Debug.WriteLine("[DIAGNOSIS] 중복 로딩 방지 통과 - 로딩 진행");
 
                 // 로딩 플래그 설정
                 _isLoadingFromDatabase = true;
@@ -142,24 +140,21 @@ namespace Notea.Modules.Daily.ViewModels
                 {
                     SelectedDate = date;
 
-                    // ===== Phase 1: 기본적인 데이터 로딩 (그대로 유지) =====
-
-                    // 1. Comment 로딩 (가장 안전)
+                    // ===== Phase 1: Comment 로딩 =====
                     try
                     {
                         Comment = _db.GetCommentByDate(date);
-                        System.Diagnostics.Debug.WriteLine($"[Phase2] Comment 로드 완료: '{Comment}'");
+                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] Comment 로드 완료: '{Comment}'");
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[Phase2] Comment 로드 오류: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] Comment 로드 오류: {ex.Message}");
                         Comment = string.Empty;
                     }
 
-                    // 2. TodoList 로딩 (두 번째로 안전)
+                    // ===== Phase 2: TodoList 로딩 =====
                     try
                     {
-                        // 기존 이벤트 해제
                         foreach (var todo in TodoList)
                         {
                             todo.PropertyChanged -= Todo_PropertyChanged;
@@ -168,7 +163,7 @@ namespace Notea.Modules.Daily.ViewModels
                         TodoList.Clear();
                         var todos = _db.GetTodosByDate(date);
 
-                        System.Diagnostics.Debug.WriteLine($"[Phase2] DB에서 {todos.Count}개 Todo 로드됨");
+                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] DB에서 {todos.Count}개 Todo 로드됨");
 
                         foreach (var todo in todos)
                         {
@@ -176,31 +171,27 @@ namespace Notea.Modules.Daily.ViewModels
                             TodoList.Add(todo);
                         }
 
-                        System.Diagnostics.Debug.WriteLine($"[Phase2] TodoList에 {TodoList.Count}개 항목 추가됨");
+                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] TodoList에 {TodoList.Count}개 항목 추가됨");
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[Phase2] TodoList 로드 오류: {ex.Message}");
+                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] TodoList 로드 오류: {ex.Message}");
                     }
 
-                    // ===== Phase 2: Subject 데이터 로딩 활성화 =====
+                    // ===== Phase 3: Subject 데이터 로딩 =====
                     try
                     {
-                        System.Diagnostics.Debug.WriteLine("[Phase2] Subject 데이터 로딩 시작");
-
-                        // 오늘 할 일 과목 리스트 불러오기
+                        System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] Subject 데이터 로딩 시작");
                         LoadDailySubjects(date);
-
-                        System.Diagnostics.Debug.WriteLine("[Phase2] Subject 데이터 로딩 완료");
+                        System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] Subject 데이터 로딩 완료");
                     }
                     catch (Exception ex)
                     {
-                        System.Diagnostics.Debug.WriteLine($"[Phase2] Subject 로딩 오류: {ex.Message}");
-                        // Subject 로딩 실패해도 나머지 기능은 동작하도록 함
+                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] Subject 로딩 오류: {ex.Message}");
                     }
 
                     _hasLoadedOnce = true;
-                    System.Diagnostics.Debug.WriteLine("[Phase2] 전체 데이터 로딩 완료 (Comment + TodoList + Subjects)");
+                    System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 전체 데이터 로딩 완료");
                 }
                 finally
                 {
@@ -209,7 +200,7 @@ namespace Notea.Modules.Daily.ViewModels
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[Phase2] LoadDailyDataSafe 전체 오류: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] LoadDailyDataSafe 전체 오류: {ex.Message}");
                 _isLoadingFromDatabase = false;
             }
         }
@@ -338,7 +329,12 @@ namespace Notea.Modules.Daily.ViewModels
         // 공유 데이터 설정 메소드 - 수정됨
         public void SetSharedSubjects(ObservableCollection<SubjectProgressViewModel> sharedSubjects)
         {
-            // ✅ 더 강력한 이벤트 차단
+            System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] SetSharedSubjects 시작");
+
+            // ✅ 로딩 플래그를 임시로만 설정
+            bool wasLoadingFromDb = _isLoadingFromDatabase;
+            bool wasLoadingSubjects = _isLoadingSubjects;
+
             _isLoadingFromDatabase = true;
             _isLoadingSubjects = true;
 
@@ -356,33 +352,31 @@ namespace Notea.Modules.Daily.ViewModels
                     var existingData = Subjects.ToList();
                     foreach (var item in existingData)
                     {
-                        if (!sharedSubjects.Any(s => string.Equals(s.SubjectName, item.SubjectName, StringComparison.OrdinalIgnoreCase)))
+                        if (!sharedSubjects.Contains(item))
                         {
-                            // ✅ 캐시된 값으로 추가 (DB 조회 방지)
-                            item.SetCachedStudyTime(item.TodayStudyTimeSeconds);
                             sharedSubjects.Add(item);
                         }
                     }
                 }
 
-                // 공유 컬렉션 설정
+                // 공유 데이터로 교체
                 Subjects = sharedSubjects;
-                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 공유 데이터로 전환됨: {Subjects.Count}개 항목");
 
                 // 이벤트 다시 연결
-                Subjects.CollectionChanged += Subjects_CollectionChanged;
-
-                // ✅ 데이터 로드는 필요한 경우에만
-                if (!_hasLoadedOnce)
+                if (Subjects != null)
                 {
-                    LoadDailySubjects(SelectedDate);
-                    _hasLoadedOnce = true;
+                    Subjects.CollectionChanged += Subjects_CollectionChanged;
                 }
+
+                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 공유 데이터로 전환됨: {Subjects?.Count ?? 0}개 항목");
             }
             finally
             {
-                _isLoadingFromDatabase = false;
-                _isLoadingSubjects = false;
+                // ✅ 플래그를 원래 상태로 복원 (중요!)
+                _isLoadingFromDatabase = wasLoadingFromDb;
+                _isLoadingSubjects = wasLoadingSubjects;
+
+                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] SetSharedSubjects 완료 - _isLoadingSubjects: {_isLoadingSubjects}");
             }
         }
 

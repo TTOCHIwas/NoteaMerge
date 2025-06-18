@@ -1,0 +1,28 @@
+﻿<UserControl x:Class="Notea.Modules.Subject.Views.NotePageBodyView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:local="clr-namespace:Notea.Modules.Subject.Views"
+             Loaded="OnLoaded"
+             Unloaded="OnUnloaded">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- 검색 패널 -->
+        <local:SearchPanel Grid.Row="0" 
+                          DataContext="{Binding SearchViewModel}"/>
+
+        <!-- NoteEditorView -->
+        <local:NoteEditorView Grid.Row="1"
+                              x:Name="noteEditor"
+                              Margin="20"
+                              DataContext="{Binding EditorViewModel}" />
+
+        <!-- 하단 선 -->
+        <Rectangle Grid.Row="2" Height="1" Fill="{StaticResource black}" HorizontalAlignment="Stretch"/>
+    </Grid>
+</UserControl>

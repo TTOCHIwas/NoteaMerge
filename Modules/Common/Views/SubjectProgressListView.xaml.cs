@@ -17,6 +17,8 @@ namespace Notea.Modules.Common.Views
     {
         private Point _startPoint;
         private bool _isDragging = false;
+        private DateTime _lastClickTime = DateTime.MinValue;
+        private const int DoubleClickInterval = 500;
 
         public SubjectProgressListView()
         {
@@ -63,6 +65,52 @@ namespace Notea.Modules.Common.Views
 
                     _isDragging = false;
                 }
+            }
+        }
+
+        private void SubjectProgressItem_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_isDragging)
+            {
+                var currentTime = DateTime.Now;
+                var timeSinceLastClick = (currentTime - _lastClickTime).TotalMilliseconds;
+
+                if (timeSinceLastClick < DoubleClickInterval)
+                {
+                    HandleSubjectProgressDoubleClick(sender, e);
+                }
+                else
+                {
+                    _lastClickTime = currentTime;
+                }
+            }
+
+            _isDragging = false;
+        }
+
+        private void HandleSubjectProgressDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                var grid = sender as Grid;
+                var subject = grid?.DataContext as SubjectProgressViewModel;
+
+                if (subject != null)
+                {
+                    var mainWindow = Application.Current.MainWindow;
+                    if (mainWindow?.DataContext is MainViewModel mainViewModel)
+                    {
+                        if (mainViewModel.NavigateToNoteEditorCommand.CanExecute(subject))
+                        {
+                            mainViewModel.NavigateToNoteEditorCommand.Execute(subject);
+                            System.Diagnostics.Debug.WriteLine($"[SubjectProgressListView] 과목 '{subject.SubjectName}' 더블클릭 - 필기 화면으로 이동");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SubjectProgressListView] 과목 더블클릭 처리 오류: {ex.Message}");
             }
         }
 
@@ -337,5 +385,6 @@ namespace Notea.Modules.Common.Views
                 }
             }
         }
+
     }
 }

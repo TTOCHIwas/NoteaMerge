@@ -4,7 +4,7 @@
              xmlns:svgc="http://sharpvectors.codeplex.com/svgc/"
              xmlns:common="clr-namespace:Notea.Modules.Common.Views"
              xmlns:daily="clr-namespace:Notea.Modules.Daily.Views"
-             xmlns:converters="clr-namespace:Notea.Converters" Background="White">
+             xmlns:converters="clr-namespace:Notea.Converters" >
 
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
@@ -19,22 +19,22 @@
 
         <!-- ✅ 상단 Comment + 실제 측정 정보 영역 -->
         <Border Grid.Row="0" BorderThickness="0,0,0,2" BorderBrush="#555555">
-            <Grid Height="100" Margin="20,0">
+            <Grid VerticalAlignment="Stretch" Margin="20,0" HorizontalAlignment="Stretch">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="11*"/>
                     <ColumnDefinition Width="Auto"/>
                     <ColumnDefinition Width="3*"/>
                 </Grid.ColumnDefinitions>
 
-                <Grid Grid.Column="0">
+                <Grid Grid.Column="0" VerticalAlignment="Center">
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Grid.Row="0" Text="comment" FontSize="16" FontWeight="SemiBold" Foreground="Black" Margin="0,10,0,4"/>
+                    <TextBlock Grid.Row="0" Text="comment" FontSize="16" FontWeight="SemiBold" Foreground="Black" Margin="0,10,0,5"/>
 
-                    <Grid Grid.Row="1">
+                    <Grid Grid.Row="1" Margin="0, 0, 0, 10">
                         <Grid>
                             <TextBox x:Name="CommentTextBox"
                                      Text="{Binding Comment, UpdateSourceTrigger=PropertyChanged}"
@@ -64,12 +64,12 @@
                     </Grid>
                 </Grid>
 
-                <Rectangle Grid.Column="1" Margin="10,0" Fill="#555555" Width="2" Height="80" VerticalAlignment="Center"/>
+                <Rectangle Grid.Column="1" Margin="12" Fill="#555555" Width="2" VerticalAlignment="Stretch"/>
 
                 <!-- ✅ 우측 정보 - 실제 측정 시간만 표시 -->
                 <StackPanel Grid.Column="2" Orientation="Vertical" VerticalAlignment="Center">
                     <TextBlock Text="{Binding InfoTitle}" FontSize="16" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,0,0,5"/>
-                    <TextBlock Text="{Binding InfoContent}" FontSize="32" FontWeight="Bold" HorizontalAlignment="Center"/>
+                    <TextBlock Text="{Binding InfoContent}" Style="{StaticResource timeStyle}" HorizontalAlignment="Center"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -96,16 +96,22 @@
                     <ItemsControl ItemsSource="{Binding TodoList}">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                <Grid Style="{StaticResource SubjectGridHoverEffecte}">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="auto"/>
+                                        <ColumnDefinition Width="*"/>
+                                    </Grid.ColumnDefinitions>
                                     <!-- 체크 박스 -->
-                                    <CheckBox Width="20" Height="20"
+                                    <CheckBox Width="24" Height="24"
+                                              Grid.Column="0"
+                                              Margin="16, 16, 5, 16"
                                               IsChecked="{Binding IsCompleted, Mode=TwoWay}"
                                               Style="{StaticResource ToDoCheckBoxStyle}"
                                               VerticalAlignment="Center"
-                                              Margin="0,0,10,0" />
+                                              />
 
                                     <!-- 텍스트: 체크 여부에 따라 취소선 -->
-                                    <TextBlock Text="{Binding Title}" FontSize="16" VerticalAlignment="Center">
+                                    <TextBlock Margin="5, 16, 16, 16" Grid.Column="1" Text="{Binding Title}" FontSize="16" VerticalAlignment="Center">
                                         <TextBlock.Style>
                                             <Style TargetType="TextBlock">
                                                 <Setter Property="TextDecorations" Value="{x:Null}" />
@@ -123,13 +129,12 @@
                                         <TextBlock.ContextMenu>
                                             <ContextMenu>
                                                 <MenuItem Header="삭제"
-                                                          Click="DeleteTodo_Click"
-                                                          Tag="{Binding}" />
+                                                            Click="DeleteTodo_Click"
+                                                            Tag="{Binding}" />
                                             </ContextMenu>
                                         </TextBlock.ContextMenu>
-
                                     </TextBlock>
-                                </StackPanel>
+                                </Grid>
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
@@ -137,12 +142,12 @@
             </Grid>
 
             <!-- Todo 추가 영역 -->
-            <Grid Grid.Row="2" Margin="0,10,0,0" Height="60">
+            <Grid Grid.Row="2" Margin="0,10,0,0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <Border Background="#DDDDDD">
+                <Border Background="#DDDDDD" Padding="12, 20, 12, 20">
                     <Border.Style>
                         <Style TargetType="Border">
                             <Setter Property="Visibility" Value="Visible"/>
@@ -157,12 +162,12 @@
                         <MouseBinding MouseAction="LeftClick" Command="{Binding StartAddCommand}" />
                     </Border.InputBindings>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                        <svgc:SvgViewbox Source="/Resources/Images/add_todo.svg" Width="20" Height="20" Margin="20,0"/>
-                        <TextBlock Text="추가" FontWeight="Light" FontSize="16" VerticalAlignment="Center"/>
+                        <svgc:SvgViewbox Source="/Resources/Images/add_todo.svg" Width="18" Height="18" Margin="20,0"/>
+                        <TextBlock Text="추가" FontWeight="SemiBold" FontSize="16" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Border>
 
-                <Border Background="#DDDDDD">
+                <Border Background="#DDDDDD" Padding="16, 24, 16, 24">
                     <Border.Style>
                         <Style TargetType="Border">
                             <Setter Property="Visibility" Value="Collapsed"/>
@@ -178,7 +183,7 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <svgc:SvgViewbox Grid.Column="0" Source="/Resources/Images/check_default.svg" Width="20" Height="20" Margin="20,0"/>
+                        <svgc:SvgViewbox Grid.Column="0" Source="/Resources/Images/check_default.svg" Width="18" Height="18" Margin="20,0"/>
                         <TextBox x:Name="TodoAddBox" Grid.Column="1" BorderThickness="0" Background="Transparent" FontSize="16" FontFamily="Pretendard"
                                  Foreground="#555555" VerticalContentAlignment="Center" Text="{Binding NewTodoText, UpdateSourceTrigger=PropertyChanged}"
                                  IsVisibleChanged="TodoAddBox_IsVisibleChanged">

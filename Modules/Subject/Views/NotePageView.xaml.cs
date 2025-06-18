@@ -80,12 +80,12 @@ namespace Notea.Modules.Subject.Views
                 // 또는 EditorViewModel의 SubjectId를 통해 조회
                 if (vm.EditorViewModel?.SubjectId > 0)
                 {
-                    string query = $"SELECT title FROM subject WHERE subJectId = {vm.EditorViewModel.SubjectId}";
+                    string query = $"SELECT Name FROM Subject WHERE subjectId = {vm.EditorViewModel.SubjectId}";
                     var result = Notea.Helpers.DatabaseHelper.ExecuteSelect(query);
 
                     if (result.Rows.Count > 0)
                     {
-                        return result.Rows[0]["title"].ToString();
+                        return result.Rows[0]["Name"].ToString();
                     }
                 }
 

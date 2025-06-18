@@ -40,8 +40,56 @@ namespace Notea.ViewModels
         private readonly CalendarMonth _calendarMonthView;
         private readonly YearMonthListView _yearMonthListView;
 
+        private Notea.Modules.Subject.Views.NotePageHeaderView _notePageHeaderView;
+        private Notea.Modules.Subject.Views.NotePageBodyView _notePageBodyView;
+        private Notea.Modules.Subject.ViewModels.NotePageViewModel _notePageVM;
+
+        // 현재 선택된 과목 정보
+        private string _currentSelectedSubject;
+        private int _currentSelectedSubjectId;
+
+        public ICommand NavigateToNoteEditorCommand { get; }
+        public ICommand NavigateBackToSubjectListCommand { get; }
+
         // 🆕 공유 데이터 소스 - 두 페이지에서 모두 사용 (실제 측정 시간만)
         public ObservableCollection<SubjectProgressViewModel> SharedSubjectProgress { get; set; }
+
+        private bool _isSidebarCollapsed = false;
+        public bool IsSidebarCollapsed
+        {
+            get => _isSidebarCollapsed;
+            set
+            {
+                if (_isSidebarCollapsed != value)
+                {
+                    _isSidebarCollapsed = value;
+                    OnPropertyChanged(nameof(IsSidebarCollapsed));
+                }
+            }
+        }
+
+        private void ToggleSidebar()
+        {
+            try
+            {
+                if (LeftSidebarWidth.Value > 0)
+                {
+                    LeftSidebarWidth = new GridLength(0);
+                    IsSidebarCollapsed = true;
+                    System.Diagnostics.Debug.WriteLine("[MainViewModel] 사이드바 숨김");
+                }
+                else
+                {
+                    LeftSidebarWidth = new GridLength(280);
+                    IsSidebarCollapsed = false;
+                    System.Diagnostics.Debug.WriteLine("[MainViewModel] 사이드바 표시");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 사이드바 토글 오류: {ex.Message}");
+            }
+        }
 
         private LeftSidebarViewModel _sidebarViewModel;
         public LeftSidebarViewModel SidebarViewModel
@@ -71,8 +119,6 @@ namespace Notea.ViewModels
                 }
             }
         }
-
-        public bool IsSidebarCollapsed => LeftSidebarWidth.Value == 0;
 
         public ICommand ToggleSidebarCommand { get; }
         public ICommand ExpandSidebarCommand { get; }
@@ -178,25 +224,219 @@ private UserControl _headerContent;
 
             // Commands 초기화
             ToggleSidebarCommand = new RelayCommand(ToggleSidebar);
-            ExpandSidebarCommand = new RelayCommand(() => LeftSidebarWidth = new GridLength(280));
+            ExpandSidebarCommand = new RelayCommand(ExpandSidebar);
             NavigateToSubjectListCommand = new RelayCommand(NavigateToSubjectList);
             NavigateToTodayCommand = new RelayCommand(NavigateToToday);
+
             NavigateToCalendarCommand = new RelayCommand<string>(NavigateToCalendar);
             NavigateToYearlyCommand = new RelayCommand(NavigateToYearly);
-            NavigateToDailyViewForDateCommand = new RelayCommand<DateTime>(NavigateToDailyViewForDate);
+            //미래의 할일은 진입 x
+            NavigateToDailyViewForDateCommand = new RelayCommand<DateTime>(
+     execute: NavigateToDailyViewForDate,
+     canExecute: (date) => date.Date <= DateTime.Today
+ );
             NavigateToCalendarFromYearlyCommand = new RelayCommand<YearMonthViewModel>(NavigateToCalendarFromYearly);
 
-            // ✅ 수정: 데이터베이스 중복 초기화 제거
+            NavigateToNoteEditorCommand = new RelayCommand<object>(NavigateToNoteEditor);
+            NavigateBackToSubjectListCommand = new RelayCommand(NavigateBackToSubjectList);
+
             try
             {
                 RestoreDailySubjects();
-                // SetupProgressUpdateSystem(); // 🚨 이 줄도 임시 주석 처리
-
-                System.Diagnostics.Debug.WriteLine("[MainViewModel] 초기화 완료 (데이터 로딩 스킵됨)");
+                SetupProgressUpdateSystem();
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] 초기화 오류: {ex.Message}");
+            }
+        }
+
+        private void ExpandSidebar()
+        {
+            try
+            {
+                LeftSidebarWidth = new GridLength(280);
+                IsSidebarCollapsed = false;
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 사이드바 확장");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 사이드바 확장 오류: {ex.Message}");
+            }
+        }
+
+        private void NavigateToNoteEditor(object parameter)
+        {
+            try
+            {
+                string subjectName = null;
+                int subjectId = 0;
+
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] NavigateToNoteEditor 호출됨 - Parameter 타입: {parameter?.GetType().Name}");
+
+                // 파라미터에서 과목 정보 추출
+                if (parameter is SubjectGroupViewModel subjectGroup)
+                {
+                    subjectName = subjectGroup.SubjectName;
+                    subjectId = subjectGroup.SubjectId;
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] SubjectGroupViewModel - Name: '{subjectName}', ID: {subjectId}");
+                }
+                else if (parameter is SubjectProgressViewModel subjectProgress)
+                {
+                    subjectName = subjectProgress.SubjectName;
+                    subjectId = GetSubjectIdByName(subjectName);
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] SubjectProgressViewModel - Name: '{subjectName}', ID: {subjectId}");
+                }
+                else if (parameter is string name)
+                {
+                    subjectName = name;
+                    subjectId = GetSubjectIdByName(subjectName);
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] String parameter - Name: '{subjectName}', ID: {subjectId}");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] 알 수 없는 parameter 타입: {parameter}");
+                }
+
+                // ✅ 유효성 검사 강화
+                if (string.IsNullOrEmpty(subjectName))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] ERROR: subjectName이 null 또는 빈 문자열");
+                    return;
+                }
+
+                if (subjectId <= 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] ERROR: 유효하지 않은 subjectId: {subjectId}");
+
+                    // 과목명으로 다시 조회 시도
+                    subjectId = GetSubjectIdByName(subjectName);
+                    if (subjectId <= 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MainViewModel] ERROR: 과목명 '{subjectName}'으로도 subjectId를 찾을 수 없음");
+                        return;
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목명으로 subjectId 복구 성공: {subjectId}");
+                    }
+                }
+
+                _currentSelectedSubject = subjectName;
+                _currentSelectedSubjectId = subjectId;
+
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 최종 확인 - SubjectName: '{_currentSelectedSubject}', SubjectId: {_currentSelectedSubjectId}");
+
+                // 필기 화면용 ViewModel 생성
+                _notePageVM = new Notea.Modules.Subject.ViewModels.NotePageViewModel();
+
+                // Header와 Body View 생성하고 DataContext 설정
+                _notePageHeaderView = new Notea.Modules.Subject.Views.NotePageHeaderView { DataContext = _notePageVM };
+                _notePageBodyView = new Notea.Modules.Subject.Views.NotePageBodyView { DataContext = _notePageVM };
+
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] NotePageViewModel 및 Views 생성 완료");
+
+                // ✅ 과목 정보 설정 (가장 중요한 부분)
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] SetSubject 호출 시작 - SubjectId: {subjectId}, SubjectName: '{subjectName}'");
+                _notePageVM.SetSubject(subjectId, subjectName);
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] SetSubject 호출 완료");
+
+                // 필기 화면으로 전환
+                HeaderContent = _notePageHeaderView;
+                BodyContent = _notePageBodyView;
+
+                // 왼쪽 사이드바 설정
+                SidebarViewModel.SetContext("today");
+                SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
+
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목 '{subjectName}' 필기 화면으로 이동 완료");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 필기 화면 이동 오류: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 스택 트레이스: {ex.StackTrace}");
+            }
+        }
+
+
+
+        private void NavigateBackToSubjectList()
+        {
+            try
+            {
+                // 필기 내용 저장
+                if (_notePageVM != null)
+                {
+                    _notePageVM.SaveChanges();
+                }
+
+                // 과목 목록 화면으로 복귀
+                HeaderContent = _subjectHeaderView;
+                BodyContent = _subjectBodyView;
+                SidebarViewModel.SetContext("today");
+                SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
+
+                // 사용한 View들 정리
+                _notePageHeaderView = null;
+                _notePageBodyView = null;
+                _notePageVM = null;
+
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록으로 돌아감");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목 목록 돌아가기 오류: {ex.Message}");
+            }
+        }
+
+        private int GetSubjectIdByName(string subjectName)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] GetSubjectIdByName 호출 - subjectName: '{subjectName}'");
+
+                if (string.IsNullOrEmpty(subjectName))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] GetSubjectIdByName - subjectName이 null 또는 빈 문자열");
+                    return 0;
+                }
+
+                int result = Notea.Modules.Subject.Models.NoteRepository.GetSubjectIdByName(subjectName);
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] GetSubjectIdByName 결과 - subjectName: '{subjectName}' → subjectId: {result}");
+
+                if (result == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] 경고: 과목 '{subjectName}'에 대한 ID를 찾을 수 없습니다!");
+
+                    // 유사한 이름의 과목이 있는지 확인
+                    try
+                    {
+                        using var conn = new System.Data.SQLite.SQLiteConnection($"Data Source={System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "data", "notea.db")};Version=3;");
+                        conn.Open();
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = "SELECT subjectId, Name FROM Subject WHERE Name LIKE @searchName";
+                        cmd.Parameters.AddWithValue("@searchName", $"%{subjectName}%");
+
+                        using var reader = cmd.ExecuteReader();
+                        System.Diagnostics.Debug.WriteLine($"[MainViewModel] '{subjectName}'과 유사한 과목들:");
+                        while (reader.Read())
+                        {
+                            System.Diagnostics.Debug.WriteLine($"  - ID: {reader["subjectId"]}, Name: '{reader["Name"]}'");
+                        }
+                    }
+                    catch (Exception dbEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MainViewModel] 유사 과목 검색 오류: {dbEx.Message}");
+                    }
+                }
+
+                return result;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] SubjectId 조회 오류: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 스택 트레이스: {ex.StackTrace}");
+                return 0;
             }
         }
 
@@ -207,7 +447,8 @@ private UserControl _headerContent;
                 IsHeaderVisible = true;
                 HeaderContent = _subjectHeaderView;
                 BodyContent = _subjectBodyView;
-                SidebarViewModel.SetContext("today"); 
+                SidebarViewModel.SetContext("today");
+                SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
                 System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록 페이지로 이동");
             }
             catch (Exception ex)
@@ -231,6 +472,8 @@ private UserControl _headerContent;
 
                 // 2. Header ViewModel에 표시될 날짜를 오늘 날짜로 설정하라고 명령합니다.
                 _dailyHeaderVM.SetSelectedDate(DateTime.Now);
+
+                _dailyHeaderVM.Title = "오늘 할 일";
 
                 // 3. (D-Day 기능 사용 시) D-Day 정보도 새로고침합니다.
                 _dailyBodyVM.RefreshDdayInfo();
@@ -345,7 +588,17 @@ private UserControl _headerContent;
                 // DailyHeaderViewModel에 선택된 날짜 설정
                 if (_dailyHeaderVM != null)
                 {
-                    _dailyHeaderVM.SetSelectedDate(selectedDate); // 이 메서드 구현 필요
+                    _dailyHeaderVM.SetSelectedDate(selectedDate);
+
+                    // 날짜를 비교하여 헤더의 Title을 직접 설정합니다.
+                    if (selectedDate.Date == DateTime.Today)
+                    {
+                        _dailyHeaderVM.Title = "오늘 할 일";
+                    }
+                    else
+                    {
+                        _dailyHeaderVM.Title = selectedDate.ToString("지난 일정");
+                    }
                 }
 
                 // 사이드바 컨텍스트 변경
@@ -456,11 +709,13 @@ private UserControl _headerContent;
                 using var conn = Notea.Modules.Common.Helpers.DatabaseHelper.Instance.GetConnection();
                 conn.Open();
                 using var cmd = conn.CreateCommand();
+
+                // ✅ 수정: Subject 테이블의 컬럼명 통일
                 cmd.CommandText = @"
-                    SELECT c.categoryId 
-                    FROM category c 
-                    INNER JOIN subject s ON c.subJectId = s.subJectId 
-                    WHERE c.title = @groupTitle AND s.title = @subjectName";
+            SELECT c.categoryId 
+            FROM category c 
+            INNER JOIN Subject s ON c.subjectId = s.subjectId 
+            WHERE c.title = @groupTitle AND s.Name = @subjectName";
 
                 cmd.Parameters.AddWithValue("@groupTitle", groupTitle);
                 cmd.Parameters.AddWithValue("@subjectName", subjectName);
@@ -470,7 +725,7 @@ private UserControl _headerContent;
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[DB Error] CategoryId 조회 실패: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] CategoryId 조회 오류: {ex.Message}");
                 return 0;
             }
         }
@@ -729,13 +984,6 @@ private UserControl _headerContent;
             _dailyBodyVM.LoadDailyData(date);
         }
 
-        private void ToggleSidebar()
-        {
-            LeftSidebarWidth = LeftSidebarWidth.Value == 0
-                ? new GridLength(280)
-                : new GridLength(0);
-        }
-
         public void Cleanup()
         {
             try
@@ -753,7 +1001,6 @@ private UserControl _headerContent;
             }
         }
 
-        // INotifyPropertyChanged 구현
         public event PropertyChangedEventHandler PropertyChanged;
         protected void OnPropertyChanged(string name)
         {

@@ -37,38 +37,32 @@ namespace Notea.Modules.Subject.ViewModels
 
         public NoteEditorViewModel()
         {
-            Lines = new ObservableCollection<MarkdownLineViewModel>
-            {
-                new MarkdownLineViewModel
-                {
-                    IsEditing = true,  // 처음에 편집 가능하도록
-                    SubjectId = this.SubjectId,
-                    CategoryId = this.CurrentCategoryId,
-                    Content = ""  // 빈 내용으로 시작
-                }
-            };
-
+            Lines = new ObservableCollection<MarkdownLineViewModel>();
             InitializeIdleTimer();
             InitializeTimerIntegration();
 
-            // PropertyChanged 이벤트 등록
-            Lines[0].PropertyChanged += OnLinePropertyChanged;
-
-            Lines.CollectionChanged += (s, e) =>
+            // ✅ 빈 라인 하나 추가 (SubjectId는 나중에 설정됨)
+            var emptyLine = new MarkdownLineViewModel
             {
-                if (Lines.Count == 0)
-                {
-                    var newLine = new MarkdownLineViewModel
-                    {
-                        IsEditing = true,
-                        SubjectId = this.SubjectId,
-                        CategoryId = this.CurrentCategoryId,
-                        Content = ""
-                    };
-                    newLine.PropertyChanged += OnLinePropertyChanged;
-                    Lines.Add(newLine);
-                }
+                IsEditing = true,
+                SubjectId = 0, // 초기값, 나중에 SetSubjectId에서 설정됨
+                CategoryId = 0, // 초기값, 실제 저장시 자동 할당
+                Content = "",
+                DisplayOrder = 1,
+                TextId = 0,
+                Index = 0
             };
+
+            emptyLine.SetOriginalContent("");
+            Lines.Add(emptyLine);
+            RegisterLineEvents(emptyLine);
+
+            _nextDisplayOrder = 2;
+            CurrentCategoryId = 0; // 초기값
+
+            Lines.CollectionChanged += Lines_CollectionChanged;
+
+            Debug.WriteLine($"[NoteEditor] 기본 생성자 완료 - 빈 라인 1개 추가");
         }
 
         public NoteEditorViewModel(List<NoteCategory> loadedNotes)
@@ -79,9 +73,6 @@ namespace Notea.Modules.Subject.ViewModels
             int currentDisplayOrder = 1;
 
             Debug.WriteLine($"[LOAD] NoteEditorViewModel 생성 시작. 카테고리 수: {loadedNotes?.Count ?? 0}");
-
-            // 기본 카테고리 확인
-            NoteRepository.EnsureDefaultCategory(SubjectId);
 
             if (loadedNotes != null && loadedNotes.Count > 0)
             {
@@ -94,6 +85,14 @@ namespace Notea.Modules.Subject.ViewModels
 
                 _nextDisplayOrder = currentDisplayOrder;
                 Debug.WriteLine($"[LOAD] 로드 완료. 총 라인 수: {Lines.Count}");
+
+                // ✅ 첫 번째 카테고리의 ID를 CurrentCategoryId로 설정
+                var firstCategory = Lines.FirstOrDefault(l => l.IsHeadingLine);
+                if (firstCategory != null)
+                {
+                    CurrentCategoryId = firstCategory.CategoryId;
+                    Debug.WriteLine($"[LOAD] CurrentCategoryId 설정: {CurrentCategoryId}");
+                }
             }
 
             // 라인이 없으면 빈 라인 추가
@@ -104,6 +103,22 @@ namespace Notea.Modules.Subject.ViewModels
             }
 
             Lines.CollectionChanged += Lines_CollectionChanged;
+        }
+
+        public void SetSubjectId(int subjectId)
+        {
+            SubjectId = subjectId;
+
+            // 모든 라인의 SubjectId 업데이트
+            foreach (var line in Lines)
+            {
+                if (line.SubjectId != subjectId)
+                {
+                    line.SubjectId = subjectId;
+                }
+            }
+
+            Debug.WriteLine($"[NoteEditor] SubjectId 설정 완료: {subjectId} (총 {Lines.Count}개 라인)");
         }
 
         private void InitializeTimerIntegration()
@@ -154,7 +169,8 @@ namespace Notea.Modules.Subject.ViewModels
                 using var conn = Notea.Modules.Common.Helpers.DatabaseHelper.Instance.GetConnection();
                 conn.Open();
                 using var cmd = conn.CreateCommand();
-                cmd.CommandText = "SELECT title FROM subject WHERE subJectId = @subjectId";
+
+                cmd.CommandText = "SELECT Name FROM Subject WHERE subjectId = @subjectId";
                 cmd.Parameters.AddWithValue("@subjectId", subjectId);
 
                 var result = cmd.ExecuteScalar();
@@ -169,12 +185,11 @@ namespace Notea.Modules.Subject.ViewModels
 
         private void AddInitialEmptyLine()
         {
-            // 기본 카테고리 ID 사용 (1)
             var emptyLine = new MarkdownLineViewModel
             {
                 IsEditing = true,
-                SubjectId = this.SubjectId,
-                CategoryId = 1, // 기본 카테고리
+                SubjectId = this.SubjectId, // 현재 설정된 SubjectId 사용
+                CategoryId = 0, // 초기값, 실제 저장시 자동 할당
                 Content = "",
                 DisplayOrder = 1,
                 TextId = 0,
@@ -185,13 +200,9 @@ namespace Notea.Modules.Subject.ViewModels
             Lines.Add(emptyLine);
             RegisterLineEvents(emptyLine);
 
-            CurrentCategoryId = 1;
-            Debug.WriteLine($"[LOAD] 빈 라인 추가됨. CategoryId: {emptyLine.CategoryId}");
+            CurrentCategoryId = 0; // 초기값
+            Debug.WriteLine($"[LOAD] 빈 라인 추가됨. SubjectId: {this.SubjectId}");
         }
-
-        /// <summary>
-        /// 카테고리와 하위 구조를 재귀적으로 추가
-        /// </summary>
         private int AddCategoryWithHierarchy(NoteCategory category, int displayOrder)
         {
             CurrentCategoryId = category.CategoryId;
@@ -310,10 +321,13 @@ namespace Notea.Modules.Subject.ViewModels
         {
             if ((DateTime.Now - _lastActivityTime).TotalSeconds >= IDLE_TIMEOUT_SECONDS)
             {
-                Debug.WriteLine($"[IDLE] {IDLE_TIMEOUT_SECONDS}초간 유휴 상태 감지. 자동 저장 시작.");
-                DebugPrintCurrentState();
-                UpdateActivity();
-                SaveAllChanges();
+                // 실제 변경사항이 있는 경우만 저장
+                var hasRealChanges = Lines.Any(l => l.HasChanges);
+                if (hasRealChanges)
+                {
+                    UpdateActivity();
+                    SaveAllChanges();
+                }
             }
         }
 
@@ -391,14 +405,11 @@ namespace Notea.Modules.Subject.ViewModels
         private void RegisterLineEvents(MarkdownLineViewModel line)
         {
             line.PropertyChanged += OnLinePropertyChanged;
-            line.CategoryCreated += OnCategoryCreated;
             line.RequestFindPreviousCategory += OnRequestFindPreviousCategory;
         }
-
         private void UnregisterLineEvents(MarkdownLineViewModel line)
         {
             line.PropertyChanged -= OnLinePropertyChanged;
-            line.CategoryCreated -= OnCategoryCreated;
             line.RequestFindPreviousCategory -= OnRequestFindPreviousCategory;
         }
 
@@ -467,18 +478,22 @@ namespace Notea.Modules.Subject.ViewModels
 
         private int GetCurrentCategoryIdForNewLine()
         {
-            // 마지막 라인부터 역순으로 가장 최근의 카테고리 찾기
-            for (int i = Lines.Count - 1; i >= 0; i--)
+            // 현재 커서 위치나 마지막 활성 카테고리 찾기
+            if (CurrentCategoryId > 0)
             {
-                if (Lines[i].IsHeadingLine && Lines[i].CategoryId > 0)
-                {
-                    Debug.WriteLine($"[DEBUG] 가장 최근 카테고리 찾음: {Lines[i].CategoryId} (라인 {i}, 레벨 {Lines[i].Level})");
-                    return Lines[i].CategoryId;
-                }
+                return CurrentCategoryId;
             }
 
-            Debug.WriteLine($"[DEBUG] 카테고리를 찾지 못함. CurrentCategoryId 사용: {CurrentCategoryId}");
-            return CurrentCategoryId > 0 ? CurrentCategoryId : 1;
+            // 마지막 제목 라인의 CategoryId 찾기
+            var lastHeading = Lines.LastOrDefault(l => l.IsHeadingLine && l.CategoryId > 0);
+            if (lastHeading != null)
+            {
+                CurrentCategoryId = lastHeading.CategoryId;
+                return CurrentCategoryId;
+            }
+
+            // 첫 번째 제목이 생성될 때까지는 0 반환 (저장시 자동 할당됨)
+            return 0;
         }
 
         private void OnLinePropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -489,14 +504,31 @@ namespace Notea.Modules.Subject.ViewModels
                 {
                     if (line != null && line.HasChanges)
                     {
-                        // 내용 변경 시 활동 업데이트 (타이머에 현재 카테고리 알림)
                         UpdateActivity();
                     }
-                    // 일반 텍스트가 제목으로 변경되는 경우
-                    if (NoteRepository.IsCategoryHeading(line.Content) && !line.IsHeadingLine)
+
+                    // 제목 상태 변경 감지 및 처리
+                    bool wasHeading = line.IsHeadingLine;
+                    bool isHeading = NoteRepository.IsCategoryHeading(line.Content);
+
+                    if (wasHeading != isHeading)
                     {
-                        line.IsHeadingLine = true;
-                        UpdateSubsequentLinesCategoryId(Lines.IndexOf(line) + 1, line.CategoryId);
+                        HandleHeadingStatusChange(line, wasHeading, isHeading);
+                    }
+                    else if (isHeading && wasHeading)
+                    {
+                        // 제목 레벨 변경 감지
+                        int oldLevel = line.Level;
+                        int newLevel = NoteRepository.GetHeadingLevel(line.Content);
+
+                        if (oldLevel != newLevel && newLevel > 0)
+                        {
+                            line.Level = newLevel;
+                            Debug.WriteLine($"[DEBUG] 제목 레벨 변경: {oldLevel} → {newLevel}");
+
+                            // 레벨 변경시 즉시 하위 요소 재구성 예약
+                            ScheduleHierarchyUpdate(line);
+                        }
                     }
                 }
                 else if (e.PropertyName == nameof(MarkdownLineViewModel.CategoryId))
@@ -508,6 +540,150 @@ namespace Notea.Modules.Subject.ViewModels
                 }
             }
         }
+
+        private void HandleHeadingStatusChange(MarkdownLineViewModel line, bool wasHeading, bool isHeading)
+        {
+            try
+            {
+                if (wasHeading && !isHeading)
+                {
+                    // 제목에서 일반 텍스트로 변경
+                    Debug.WriteLine($"[DEBUG] 제목에서 일반 텍스트로 변경됨: {line.Content}");
+
+                    // 기본 카테고리(1)인 경우 특별 처리
+                    if (line.CategoryId <= 1)
+                    {
+                        Debug.WriteLine("[WARNING] 기본 카테고리는 삭제할 수 없습니다.");
+                        line.IsHeadingLine = false;
+                        line.Level = 0;
+                        line.TextId = 0; // 새로운 텍스트로 생성
+                        return;
+                    }
+
+                    int previousCategoryId = FindPreviousCategoryId(line);
+
+                    // 현재 카테고리의 하위 텍스트들을 이전 카테고리로 재할당
+                    if (previousCategoryId > 0)
+                    {
+                        NoteRepository.ReassignTextsToCategory(line.CategoryId, previousCategoryId);
+                    }
+
+                    // 카테고리 삭제
+                    NoteRepository.DeleteCategory(line.CategoryId);
+
+                    line.IsHeadingLine = false;
+                    line.CategoryId = previousCategoryId > 0 ? previousCategoryId : 1;
+                    line.TextId = 0; // 새로운 텍스트로 생성
+                    line.Level = 0;
+
+                    // 현재 카테고리 업데이트
+                    if (CurrentCategoryId == line.CategoryId)
+                    {
+                        CurrentCategoryId = previousCategoryId > 0 ? previousCategoryId : 1;
+                    }
+
+                    // 하위 라인들의 카테고리 재할당
+                    ReassignSubsequentLines(line, previousCategoryId > 0 ? previousCategoryId : 1);
+                }
+                else if (!wasHeading && isHeading)
+                {
+                    // 일반 텍스트에서 제목으로 변경
+                    Debug.WriteLine($"[DEBUG] 일반 텍스트에서 제목으로 변경됨: {line.Content}");
+
+                    // 기존 텍스트 삭제
+                    if (line.TextId > 0)
+                    {
+                        NoteRepository.DeleteLine(line.TextId);
+                        line.TextId = 0;
+                    }
+
+                    line.IsHeadingLine = true;
+                    line.Level = NoteRepository.GetHeadingLevel(line.Content);
+                    line.CategoryId = 0; // 새로운 카테고리로 생성 (저장 시점에 처리)
+
+                    // 하위 라인들의 카테고리 업데이트 예약
+                    ScheduleHierarchyUpdate(line);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ERROR] HandleHeadingStatusChange 실패: {ex.Message}");
+                throw;
+            }
+        }
+
+        private void ReassignSubsequentLines(MarkdownLineViewModel changedLine, int newCategoryId)
+        {
+            try
+            {
+                int lineIndex = Lines.IndexOf(changedLine);
+
+                for (int i = lineIndex + 1; i < Lines.Count; i++)
+                {
+                    var subsequentLine = Lines[i];
+
+                    // 다음 제목을 만나면 중단
+                    if (subsequentLine.IsHeadingLine && subsequentLine.Level <= changedLine.Level)
+                    {
+                        break;
+                    }
+
+                    // 일반 텍스트라면 카테고리 재할당
+                    if (!subsequentLine.IsHeadingLine)
+                    {
+                        subsequentLine.CategoryId = newCategoryId;
+                        Debug.WriteLine($"[DEBUG] 라인 재할당: TextId={subsequentLine.TextId}, 새 CategoryId={newCategoryId}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ERROR] ReassignSubsequentLines 실패: {ex.Message}");
+            }
+        }
+
+        private int FindPreviousCategoryId(MarkdownLineViewModel currentLine)
+        {
+            try
+            {
+                int lineIndex = Lines.IndexOf(currentLine);
+
+                // 현재 라인 이전에 있는 가장 가까운 제목 찾기
+                for (int i = lineIndex - 1; i >= 0; i--)
+                {
+                    if (Lines[i].IsHeadingLine && Lines[i].CategoryId > 0)
+                    {
+                        return Lines[i].CategoryId;
+                    }
+                }
+
+                // 이전 제목이 없으면 데이터베이스에서 찾기
+                return NoteRepository.FindPreviousCategoryIdByDisplayOrder(SubjectId, currentLine.DisplayOrder);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ERROR] FindPreviousCategoryId 실패: {ex.Message}");
+                return 1;
+            }
+        }
+
+        private void ScheduleHierarchyUpdate(MarkdownLineViewModel line)
+        {
+            // 실제 구현에서는 펜딩 업데이트 큐에 추가
+            // 여기서는 즉시 표시만 업데이트
+            line.OnPropertyChanged(nameof(line.HasChanges));
+        }
+
+        private void ScheduleCategoryDeletion(MarkdownLineViewModel line)
+        {
+            // 삭제 예약 처리 (저장 시점에 실제 삭제)
+            line.OnPropertyChanged(nameof(line.HasChanges));
+        }
+        private void ScheduleNewCategoryCreation(MarkdownLineViewModel line)
+{
+    // 생성 예약 처리 (저장 시점에 실제 생성)
+    line.OnPropertyChanged(nameof(line.HasChanges));
+}
 
         private void OnCategoryCreated(object sender, CategoryCreatedEventArgs e)
         {
@@ -556,24 +732,52 @@ namespace Notea.Modules.Subject.ViewModels
         }
 
 
-        private void OnRequestFindPreviousCategory(object sender, FindPreviousCategoryEventArgs e)
+        private void OnRequestFindPreviousCategory(object sender, MarkdownLineViewModel.FindPreviousCategoryEventArgs e)
         {
-            var currentLine = e.CurrentLine;
-            int currentIndex = Lines.IndexOf(currentLine);
-
-            // 현재 라인 이전에서 가장 가까운 카테고리 찾기
-            for (int i = currentIndex - 1; i >= 0; i--)
+            try
             {
-                if (Lines[i].IsHeadingLine && Lines[i].CategoryId > 0)
+                if (e.CurrentLine != null)
                 {
-                    e.PreviousCategoryId = Lines[i].CategoryId;
-                    return;
+                    e.PreviousCategoryId = FindPreviousCategoryIdForLine(e.CurrentLine);
+                }
+                else
+                {
+                    e.PreviousCategoryId = 1; // 기본값
                 }
             }
-
-            // 이전 카테고리가 없으면 기본값
-            e.PreviousCategoryId = 1;
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ERROR] OnRequestFindPreviousCategory 실패: {ex.Message}");
+                e.PreviousCategoryId = 1; // 기본값
+            }
         }
+
+        private int FindPreviousCategoryIdForLine(MarkdownLineViewModel currentLine)
+        {
+            try
+            {
+                int lineIndex = Lines.IndexOf(currentLine);
+
+                // 현재 라인 이전에 있는 가장 가까운 제목 찾기
+                for (int i = lineIndex - 1; i >= 0; i--)
+                {
+                    if (Lines[i].IsHeadingLine && Lines[i].CategoryId > 0)
+                    {
+                        return Lines[i].CategoryId;
+                    }
+                }
+
+                // 이전 제목이 없으면 데이터베이스에서 찾기
+                return NoteRepository.FindPreviousCategoryIdByDisplayOrder(SubjectId, currentLine.DisplayOrder);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ERROR] FindPreviousCategoryIdForLine 실패: {ex.Message}");
+                return 1;
+            }
+        }
+
+
 
         private void UpdateCurrentCategory(MarkdownLineViewModel headingLine)
         {
@@ -661,38 +865,25 @@ namespace Notea.Modules.Subject.ViewModels
             if (index < 0 || index > Lines.Count)
                 index = Lines.Count;
 
-            // 삽입 위치에서의 CategoryId 결정
             int categoryId = DetermineCategoryIdForIndex(index);
             int displayOrder = GetDisplayOrderForIndex(index);
-
-            Debug.WriteLine($"[INSERT] 새 라인 삽입. Index: {index}, CategoryId: {categoryId}, DisplayOrder: {displayOrder}");
 
             var newLine = new MarkdownLineViewModel
             {
                 IsEditing = true,
-                Content = "",
-                SubjectId = this.SubjectId,
+                SubjectId = this.SubjectId, // ✅ 현재 SubjectId 사용
                 CategoryId = categoryId,
+                Content = "",
                 Index = index,
                 DisplayOrder = displayOrder,
                 TextId = 0
             };
 
-            // UI에 즉시 반영
+            Debug.WriteLine($"[INSERT] 새 라인 삽입. Index: {index}, SubjectId: {this.SubjectId}, CategoryId: {categoryId}, DisplayOrder: {displayOrder}");
+
             Lines.Insert(index, newLine);
-
-            // 이후 라인들의 Index 업데이트
-            for (int i = index + 1; i < Lines.Count; i++)
-            {
-                Lines[i].Index = i;
-                if (Lines[i].DisplayOrder <= displayOrder)
-                {
-                    Lines[i].DisplayOrder = displayOrder + (i - index);
-                }
-            }
-
-            // 이벤트 등록
             RegisterLineEvents(newLine);
+            UpdateLineIndicesFrom(index + 1);
 
             Debug.WriteLine($"[INSERT] 새 라인 삽입 완료");
         }
@@ -747,10 +938,11 @@ namespace Notea.Modules.Subject.ViewModels
             };
 
             Lines.Insert(insertIndex, newLine);
-            newLine.PropertyChanged += OnLinePropertyChanged;
-            newLine.CategoryCreated += OnCategoryCreated;
 
-            Debug.WriteLine($"[DEBUG] 새 라인 삽입. Index: {insertIndex}, DisplayOrder: {newLine.DisplayOrder}");
+            // ✅ 수정: RegisterLineEvents 메서드 사용 (CategoryCreated 이벤트 제거)
+            RegisterLineEvents(newLine);
+
+            Debug.WriteLine($"[DEBUG] 새 라인 삽입 완료. Index: {insertIndex}, CategoryId: {afterLine.CategoryId}");
         }
 
         private void ShiftDisplayOrdersFrom(int fromOrder)
@@ -762,9 +954,6 @@ namespace Notea.Modules.Subject.ViewModels
                 line.DisplayOrder++;
                 Debug.WriteLine($"[DEBUG] 라인 시프트: Content='{line.Content}', NewOrder={line.DisplayOrder}");
             }
-
-            // DB에서도 업데이트
-            NoteRepository.ShiftDisplayOrdersAfter(SubjectId, fromOrder - 1);
         }
 
 
@@ -799,77 +988,97 @@ namespace Notea.Modules.Subject.ViewModels
             CurrentCategoryId = currentCategoryId;
             Debug.WriteLine($"[DEBUG] 모든 라인의 CategoryId 업데이트 완료. 현재 카테고리: {CurrentCategoryId}");
         }
-
+        private static readonly object _saveLock = new object();
         // 변경된 라인만 저장
         public void SaveAllChanges()
         {
-            try
+            lock (_saveLock) // 동시 저장 방지
             {
-                // DisplayOrder가 변경된 라인도 포함
-                var changedLines = Lines.Where(l =>
-                    l.HasChanges ||
-                    l.DisplayOrder != l.Index + 1 ||
-                    (l.TextId > 0 && !l.IsHeadingLine) // 기존 텍스트도 확인
-                ).ToList();
-
-                if (!changedLines.Any())
-                {
-                    Debug.WriteLine("[SAVE] 변경사항 없음");
-                    return;
-                }
-
-                Debug.WriteLine($"[SAVE] {changedLines.Count}개 라인 저장 시작");
-                DebugPrintCurrentState();
-
-                using var transaction = NoteRepository.BeginTransaction();
                 try
                 {
-                    // 먼저 모든 DisplayOrder 업데이트
-                    UpdateAllDisplayOrders(transaction);
-
-                    foreach (var line in changedLines)
+                    var editingLine = Lines.FirstOrDefault(l => l.IsEditing);
+                    if (editingLine != null)
                     {
-                        SaveLine(line, transaction);
+                        Debug.WriteLine("[SAVE] 편집 중인 라인 감지 - 저장 지연");
+                        return; // 편집이 완료될 때까지 저장 지연
                     }
 
-                    transaction.Commit();
-                    Debug.WriteLine($"[SAVE] 트랜잭션 커밋 완료");
+                    // DisplayOrder가 변경된 라인도 포함
+                    var changedLines = Lines.Where(l =>
+                        l.HasChanges ||
+                        l.DisplayOrder != l.Index + 1 ||
+                        (l.TextId > 0 && !l.IsHeadingLine) // 기존 텍스트도 확인
+                    ).ToList();
 
-                    // 저장 후 원본 상태 업데이트
-                    foreach (var line in changedLines)
+                    if (!changedLines.Any())
                     {
-                        line.ResetChanges();
+                        Debug.WriteLine("[SAVE] 변경사항 없음");
+                        return;
+                    }
+
+                    Debug.WriteLine($"[SAVE] {changedLines.Count}개 라인 저장 시작");
+                    DebugPrintCurrentState();
+
+                    using var transaction = NoteRepository.BeginTransaction();
+                    try
+                    {
+                        // 먼저 모든 DisplayOrder 업데이트
+                        UpdateAllDisplayOrders(transaction);
+
+                        foreach (var line in changedLines)
+                        {
+                            SaveLine(line, transaction);
+                        }
+
+                        transaction.Commit();
+                        Debug.WriteLine($"[SAVE] 트랜잭션 커밋 완료");
+
+                        // 저장 후 원본 상태 업데이트
+                        foreach (var line in changedLines)
+                        {
+                            line.ResetChanges();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[SAVE ERROR] 트랜잭션 실패, 롤백: {ex.Message}");
+                        transaction.Rollback();
+                        throw;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"[SAVE ERROR] 트랜잭션 실패, 롤백: {ex.Message}");
-                    transaction.Rollback();
-                    throw;
+                    Debug.WriteLine($"[SAVE ERROR] 저장 실패: {ex.Message}\n{ex.StackTrace}");
                 }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[SAVE ERROR] 저장 실패: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
         private void UpdateAllDisplayOrders(NoteRepository.Transaction transaction)
         {
+            var linesToUpdate = new HashSet<int>(); // 중복 방지
+
             foreach (var line in Lines)
             {
                 if (line.IsHeadingLine && line.CategoryId > 0)
                 {
-                    NoteRepository.UpdateCategoryDisplayOrder(line.CategoryId, line.DisplayOrder, transaction);
+                    if (!linesToUpdate.Contains(line.CategoryId))
+                    {
+                        NoteRepository.UpdateCategoryDisplayOrder(line.CategoryId, line.DisplayOrder, transaction);
+                        linesToUpdate.Add(line.CategoryId);
+                    }
                 }
                 else if (!line.IsHeadingLine && line.TextId > 0)
                 {
-                    NoteRepository.UpdateLineDisplayOrder(line.TextId, line.DisplayOrder, transaction);
+                    if (!linesToUpdate.Contains(line.TextId))
+                    {
+                        NoteRepository.UpdateLineDisplayOrder(line.TextId, line.DisplayOrder, transaction);
+                        linesToUpdate.Add(line.TextId);
+                    }
                 }
             }
         }
 
-        
+
 
         private void SaveLine(MarkdownLineViewModel line, NoteRepository.Transaction transaction)
         {
@@ -891,6 +1100,7 @@ namespace Notea.Modules.Subject.ViewModels
         private void SaveHeading(MarkdownLineViewModel line, NoteRepository.Transaction transaction)
         {
             int? parentId = FindParentForHeading(line);
+            int newLevel = NoteRepository.GetHeadingLevel(line.Content);
 
             if (line.CategoryId <= 0)
             {
@@ -899,18 +1109,77 @@ namespace Notea.Modules.Subject.ViewModels
                     line.Content,
                     line.SubjectId,
                     line.DisplayOrder,
-                    line.Level,
+                    newLevel,
                     parentId,
                     transaction);
                 line.CategoryId = newCategoryId;
+                line.Level = newLevel;
+
                 Debug.WriteLine($"[SAVE] 새 카테고리 생성됨: {newCategoryId}");
+
+                // ✅ 새 제목 추가 후 하위 요소들 재구성
+                UpdateSubsequentLinesAfterNewHeading(line, transaction);
             }
             else
             {
                 // 기존 카테고리 업데이트
+                bool levelChanged = line.Level != newLevel;
+
                 NoteRepository.UpdateCategory(line.CategoryId, line.Content, transaction);
                 NoteRepository.UpdateCategoryDisplayOrder(line.CategoryId, line.DisplayOrder, transaction);
+
+                if (levelChanged)
+                {
+                    // 레벨 변경 시 부모 관계 재설정
+                    NoteRepository.UpdateCategoryLevel(line.CategoryId, newLevel, transaction);
+                    line.Level = newLevel;
+
+                    // ✅ 제목 레벨 변경 후 모든 하위 요소들의 부모 관계 재구성
+                    NoteRepository.UpdateSubsequentCategoryHierarchy(line.SubjectId, line.DisplayOrder, transaction);
+
+                    Debug.WriteLine($"[SAVE] 카테고리 레벨 변경됨: {line.CategoryId}, 새 레벨: {newLevel}");
+                }
+
                 Debug.WriteLine($"[SAVE] 카테고리 업데이트됨: {line.CategoryId}");
+            }
+        }
+
+        private void UpdateSubsequentLinesAfterNewHeading(MarkdownLineViewModel headingLine, NoteRepository.Transaction transaction)
+        {
+            try
+            {
+                int headingIndex = Lines.IndexOf(headingLine);
+                if (headingIndex == -1) return;
+
+                int currentCategoryId = headingLine.CategoryId;
+
+                // 제목 다음부터 다른 제목이 나올 때까지 모든 라인의 CategoryId 업데이트
+                for (int i = headingIndex + 1; i < Lines.Count; i++)
+                {
+                    var line = Lines[i];
+
+                    // 다른 제목을 만나면 중단
+                    if (line.IsHeadingLine) break;
+
+                    // 일반 텍스트의 CategoryId 업데이트
+                    if (line.CategoryId != currentCategoryId)
+                    {
+                        line.CategoryId = currentCategoryId;
+                        line.OnPropertyChanged(nameof(line.CategoryId));
+
+                        // 데이터베이스에도 반영 (TextId가 있는 경우)
+                        if (line.TextId > 0)
+                        {
+                            NoteRepository.UpdateLineCategoryId(line.TextId, currentCategoryId, transaction);
+                        }
+
+                        Debug.WriteLine($"[SAVE] 라인 {i} CategoryId 업데이트: {currentCategoryId}");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[SAVE ERROR] UpdateSubsequentLinesAfterNewHeading 실패: {ex.Message}");
             }
         }
 
@@ -956,27 +1225,21 @@ namespace Notea.Modules.Subject.ViewModels
         /// </summary>
         private int? FindParentForHeading(MarkdownLineViewModel heading)
         {
-
-            Debug.WriteLine($"[SAVE] 부모 찾는다 기다려라");
-
             int headingIndex = Lines.IndexOf(heading);
+            int targetLevel = NoteRepository.GetHeadingLevel(heading.Content);
 
+            // 효율적인 부모 찾기
             for (int i = headingIndex - 1; i >= 0; i--)
             {
-                Debug.WriteLine($"[SAVE] 부모 찾는 중이다 기다려라");
-
                 var line = Lines[i];
-                if (line.IsHeadingLine && line.Level < heading.Level && line.CategoryId > 0)
+                if (line.IsHeadingLine && line.Level < targetLevel && line.CategoryId > 0)
                 {
-                    Debug.WriteLine($"[SAVE] 부모 찾았다 임마 기다려라");
-
+                    Debug.WriteLine($"[SAVE] 부모 카테고리 발견: CategoryId={line.CategoryId}, Level={line.Level}");
                     return line.CategoryId;
                 }
             }
 
-            Debug.WriteLine($"[SAVE] 부모 몬 찾았다 어어?");
-
-
+            Debug.WriteLine($"[SAVE] 최상위 레벨 카테고리 - 부모 없음");
             return null;
         }
 

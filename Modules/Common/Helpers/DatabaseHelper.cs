@@ -44,15 +44,113 @@ namespace Notea.Modules.Common.Helpers
 
         private void EnsureDatabaseReady()
         {
-            // 🚨 무한루프 방지: 완전히 비활성화
-            System.Diagnostics.Debug.WriteLine("[DatabaseHelper] EnsureDatabaseReady 스킵됨");
-            return;
+            if (_isInitialized) return;
+
+            lock (_initLock)
+            {
+                if (_isInitialized) return;
+
+                try
+                {
+                    // ✅ 이 줄들을 다시 활성화
+                    AddCategoryIdToStudySessionDirect();
+                    MigrateStudySessionTableDirect();
+                    _isInitialized = true;
+                    System.Diagnostics.Debug.WriteLine("[DatabaseHelper] 지연 초기화 완료");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DatabaseHelper] 지연 초기화 실패: {ex.Message}");
+                    throw;
+                }
+            }
+        }
+
+        private void MigrateStudySessionTableDirect()
+        {
+            try
+            {
+                using var conn = new SQLiteConnection(Notea.Database.DatabaseInitializer.GetConnectionString());
+                conn.Open();
+
+                // 테이블 구조 확인
+                using var checkCmd = conn.CreateCommand();
+                checkCmd.CommandText = "PRAGMA table_info(StudySession)";
+                using var reader = checkCmd.ExecuteReader();
+
+                var columns = new List<string>();
+                while (reader.Read())
+                {
+                    columns.Add(reader["name"].ToString());
+                }
+                reader.Close();
+
+                // 필요한 컬럼들 추가
+                var requiredColumns = new Dictionary<string, string>
+        {
+            { "CategoryId", "INTEGER" },
+            { "SubjectName", "TEXT" },
+            { "TopicGroupName", "TEXT" } // ✅ 이 컬럼이 중요!
+        };
+
+                foreach (var column in requiredColumns)
+                {
+                    if (!columns.Contains(column.Key))
+                    {
+                        using var alterCmd = conn.CreateCommand();
+                        alterCmd.CommandText = $"ALTER TABLE StudySession ADD COLUMN {column.Key} {column.Value}";
+                        alterCmd.ExecuteNonQuery();
+                        System.Diagnostics.Debug.WriteLine($"[DB] StudySession 테이블에 {column.Key} 컬럼 추가됨");
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DB] StudySession 테이블 마이그레이션 오류: {ex.Message}");
+            }
+        }
+
+        private void AddCategoryIdToStudySessionDirect()
+        {
+            try
+            {
+                using var conn = new SQLiteConnection(Notea.Database.DatabaseInitializer.GetConnectionString());
+                conn.Open();
+
+                // CategoryId 컬럼이 이미 있는지 확인
+                using var checkCmd = conn.CreateCommand();
+                checkCmd.CommandText = "PRAGMA table_info(StudySession)";
+                using var reader = checkCmd.ExecuteReader();
+
+                bool hasCategoryId = false;
+                while (reader.Read())
+                {
+                    if (reader["name"].ToString() == "CategoryId")
+                    {
+                        hasCategoryId = true;
+                        break;
+                    }
+                }
+                reader.Close();
+
+                // CategoryId 컬럼이 없으면 추가
+                if (!hasCategoryId)
+                {
+                    using var alterCmd = conn.CreateCommand();
+                    alterCmd.CommandText = "ALTER TABLE StudySession ADD COLUMN CategoryId INTEGER";
+                    alterCmd.ExecuteNonQuery();
+                    System.Diagnostics.Debug.WriteLine("[DB] StudySession 테이블에 CategoryId 컬럼 추가됨");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DB] CategoryId 컬럼 추가 오류: {ex.Message}");
+            }
         }
 
         public SQLiteConnection GetConnection()
         {
-            // 🚨 EnsureDatabaseReady 호출 제거하여 순환 호출 방지
-            // EnsureDatabaseReady(); // 이 줄 완전 삭제
+            EnsureDatabaseReady(); // ✅ 이 줄을 다시 활성화
             return new SQLiteConnection(Notea.Database.DatabaseInitializer.GetConnectionString());
         }
 
@@ -305,12 +403,27 @@ namespace Notea.Modules.Common.Helpers
             {
                 lock (_lockObject)
                 {
-                    using var conn = GetConnection();
-                    conn.Open();
-                    using var cmd = conn.CreateCommand();
-                    cmd.CommandText = "INSERT INTO Subject (Name) VALUES (@name); SELECT last_insert_rowid();";
-                    cmd.Parameters.AddWithValue("@name", name);
-                    return Convert.ToInt32(cmd.ExecuteScalar());
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = "INSERT INTO Subject (Name) VALUES (@name); SELECT last_insert_rowid();";
+                        cmd.Parameters.AddWithValue("@name", name);
+                        return Convert.ToInt32(cmd.ExecuteScalar());
+                    }
+                    catch (System.Data.SQLite.SQLiteException ex)
+                    {
+                        // UNIQUE constraint 오류 확인
+                        if (ex.Message.Contains("UNIQUE constraint failed") && ex.Message.Contains("Subject.Name"))
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[DB] 중복 과목명 오류: {name}");
+                            // 중복 과목명임을 알리는 특별한 예외 던지기
+                            throw new InvalidOperationException($"'{name}' 과목이 이미 존재합니다.");
+                        }
+                        // 다른 SQLite 오류는 그대로 전파
+                        throw;
+                    }
                 }
             });
         }
@@ -490,20 +603,16 @@ namespace Notea.Modules.Common.Helpers
                 lock (_lockObject)
                 {
                     var result = new List<SubjectGroupViewModel>();
-
                     using var conn = GetConnection();
                     conn.Open();
 
                     var cmd = conn.CreateCommand();
-
-                    // ✅ 수정: Subject 테이블의 Name 컬럼 사용
-                    cmd.CommandText = "SELECT subjectId, Name FROM Subject ORDER BY Name";
-
+                    // ✅ 수정: 최신 순으로 정렬 (createdDate 내림차순)
+                    cmd.CommandText = "SELECT subjectId, Name FROM Subject ORDER BY createdDate ASC";
 
                     using var reader = cmd.ExecuteReader();
                     while (reader.Read())
                     {
-                        // ✅ 수정: 정확한 컬럼명 사용
                         var subjectId = Convert.ToInt32(reader["subjectId"]);
                         var subjectName = reader["Name"].ToString();
 
@@ -666,35 +775,6 @@ namespace Notea.Modules.Common.Helpers
             // DatabaseInitializer에서 이미 모든 스키마 초기화가 완료되므로 여기서는 아무것도 하지 않음
             System.Diagnostics.Debug.WriteLine("[DatabaseHelper] EnsureSchemaComplete 스킵됨 - DatabaseInitializer에서 이미 처리");
             return;
-        }
-
-        private void LoadTopicItemsForGroup(SQLiteConnection conn, TopicGroupViewModel topicGroup, int groupId)
-        {
-            using var itemCmd = conn.CreateCommand();
-            itemCmd.CommandText = "SELECT Id, Content, CreatedAt FROM TopicItem WHERE TopicGroupId = @groupId ORDER BY CreatedAt";
-            itemCmd.Parameters.AddWithValue("@groupId", groupId);
-
-            using var itemReader = itemCmd.ExecuteReader();
-            while (itemReader.Read())
-            {
-                var itemId = Convert.ToInt32(itemReader["Id"]);
-                var content = itemReader["Content"].ToString();
-                var createdAt = DateTime.Parse(itemReader["CreatedAt"].ToString());
-
-                var topicItem = new Notea.Modules.Subjects.Models.TopicItem
-                {
-                    Id = itemId,
-                    Content = content,
-                    ParentTopicGroupName = topicGroup.GroupTitle,
-                    ParentSubjectName = topicGroup.ParentSubjectName,
-                    Progress = 0.0,
-                    StudyTimeSeconds = 0 // ✅ 초단위 사용
-                };
-
-                topicGroup.Topics.Add(topicItem);
-            }
-
-            System.Diagnostics.Debug.WriteLine($"[DB] TopicGroup '{topicGroup.GroupTitle}'에 {topicGroup.Topics.Count}개 TopicItem 로드됨");
         }
 
         public int GetSubjectDailyTimeSeconds(DateTime date, string subjectName)
@@ -1022,7 +1102,12 @@ namespace Notea.Modules.Common.Helpers
 
                         // 과목 정보 조회
                         using var subjectCmd = conn.CreateCommand();
-                        subjectCmd.CommandText = "SELECT SubjectName, Progress, StudyTimeSeconds FROM DailySubject WHERE Date = @date ORDER BY DisplayOrder";
+                        subjectCmd.CommandText = @"
+                                SELECT ds.SubjectName, ds.Progress, ds.StudyTimeSeconds 
+                                FROM DailySubject ds
+                                INNER JOIN Subject s ON ds.SubjectName = s.Name
+                                WHERE ds.Date = @date 
+                                ORDER BY s.createdDate ASC";
                         subjectCmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
 
                         var subjects = new List<(string, double, int)>();
@@ -1049,7 +1134,7 @@ namespace Notea.Modules.Common.Helpers
                                COALESCE(c.categoryId, 0) as CategoryId
                         FROM DailyTopicGroup dtg
                         LEFT JOIN category c ON c.title = dtg.GroupTitle 
-                                             AND c.subJectId = (SELECT subJectId FROM subject WHERE title = @subjectName)
+                     AND c.subjectId = (SELECT subjectId FROM Subject WHERE Name = @subjectName)
                         WHERE dtg.Date = @date AND dtg.SubjectName = @subjectName";
 
                             groupCmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
@@ -1691,13 +1776,13 @@ namespace Notea.Modules.Common.Helpers
 
                         // ✅ 실제 존재하는 subject 테이블 사용
                         using var cmd = conn.CreateCommand();
-                        cmd.CommandText = "SELECT subJectId, title FROM subject ORDER BY title";
+                        cmd.CommandText = "SELECT subjectId, Name FROM Subject ORDER BY Name";
                         using var reader = cmd.ExecuteReader();
 
                         while (reader.Read())
                         {
-                            var subjectId = Convert.ToInt32(reader["subJectId"]);
-                            var subjectName = reader["title"].ToString();
+                            var subjectId = Convert.ToInt32(reader["subjectId"]);
+                            var subjectName = reader["Name"].ToString();
 
                             // ✅ StudySession에서 해당 과목의 학습시간 계산
                             var totalTime = GetSubjectTotalStudyTimeSeconds(subjectName);

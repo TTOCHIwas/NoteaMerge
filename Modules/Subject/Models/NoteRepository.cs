@@ -1,102 +1,207 @@
-﻿using System.Data.SQLite;
-using Notea.Helpers;
-using Notea.Modules.Subject.ViewModels;
-using System;
+﻿using System;
 using System.Collections.Generic;
-using System.Collections.ObjectModel;
-using System.Data;
+using System.Data.SQLite;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Text.RegularExpressions;
+using Notea.Modules.Subject.ViewModels;
+
 namespace Notea.Modules.Subject.Models
 {
     public static class NoteRepository
     {
-        public class Transaction : IDisposable
+        // DB 경로는 DatabaseHelper에서 관리
+        private static string GetConnectionString()
         {
-            private SQLiteConnection _connection;
-            private SQLiteTransaction _transaction;
-            public SQLiteConnection Connection => _connection;
-            public SQLiteTransaction SqliteTransaction => _transaction;
+            return Notea.Database.DatabaseInitializer.GetConnectionString();
+        }
 
-            public Transaction(SQLiteConnection connection, SQLiteTransaction transaction)
+        #region 제목 판별 및 헤딩 관련 메서드
+
+        /// <summary>
+        /// 카테고리로 저장할 제목인지 확인하는 메서드 - 모든 레벨의 마크다운 제목 허용
+        /// </summary>
+        public static bool IsCategoryHeading(string content)
+        {
+            if (string.IsNullOrWhiteSpace(content)) return false;
+            // ✅ 수정: 모든 레벨의 마크다운 제목 (#, ##, ###, ####, #####, ######) 허용
+            return Regex.IsMatch(content.Trim(), @"^#{1,6}\s+.+");
+        }
+
+        /// <summary>
+        /// 마크다운 헤딩인지 확인 (# ~ ######) - IsCategoryHeading과 동일하게 통일
+        /// </summary>
+        public static bool IsMarkdownHeading(string content)
+        {
+            return IsCategoryHeading(content); // 통일된 로직 사용
+        }
+
+        /// <summary>
+        /// 헤딩 레벨 추출 (1~6)
+        /// </summary>
+        public static int GetHeadingLevel(string content)
+        {
+            if (string.IsNullOrWhiteSpace(content)) return 0;
+
+            var match = Regex.Match(content.Trim(), @"^(#{1,6})\s+");
+            return match.Success ? match.Groups[1].Value.Length : 0;
+        }
+
+        #endregion
+
+        #region 부모-자식 관계 및 계층 구조 메서드
+
+        /// <summary>
+        /// 제목에서 부모 카테고리 찾기 (레벨 기반)
+        /// </summary>
+        public static int? FindParentCategoryByLevel(int subjectId, int currentLevel, int currentDisplayOrder)
+        {
+            try
             {
-                _connection = connection;
-                _transaction = transaction;
+                if (currentLevel <= 1) return null; // 최상위 레벨은 부모 없음
+
+                string query = @"
+            SELECT categoryId 
+            FROM category 
+            WHERE subjectId = @subjectId 
+              AND level < @currentLevel 
+              AND displayOrder < @currentDisplayOrder
+            ORDER BY displayOrder DESC 
+            LIMIT 1";
+
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = query;
+                cmd.Parameters.AddWithValue("@subjectId", subjectId);
+                cmd.Parameters.AddWithValue("@currentLevel", currentLevel);
+                cmd.Parameters.AddWithValue("@currentDisplayOrder", currentDisplayOrder);
+
+                var result = cmd.ExecuteScalar();
+                return result != null ? Convert.ToInt32(result) : (int?)null;
             }
-
-            public void Commit() => _transaction.Commit();
-            public void Rollback() => _transaction.Rollback();
-            public void Dispose()
+            catch (Exception ex)
             {
-                _transaction?.Dispose();
-                _connection?.Dispose();
+                Debug.WriteLine($"[DB ERROR] FindParentCategoryByLevel 실패: {ex.Message}");
+                return null;
             }
         }
 
-        public static SubjectData GetSubjectById(int subjectId)
+        /// <summary>
+        /// 가장 가까운 이전 카테고리 찾기 (displayOrder 기반)
+        /// </summary>
+        public static int FindNearestPreviousCategory(int subjectId, int displayOrder)
+        {
+            try
+            {
+                Debug.WriteLine($"[FIND] FindNearestPreviousCategory 시작 - SubjectId: {subjectId}, DisplayOrder: {displayOrder}");
+
+                string query = @"
+            SELECT categoryId 
+            FROM category 
+            WHERE subjectId = @subjectId AND displayOrder < @displayOrder
+            ORDER BY displayOrder DESC 
+            LIMIT 1";
+
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = query;
+                cmd.Parameters.AddWithValue("@subjectId", subjectId);
+                cmd.Parameters.AddWithValue("@displayOrder", displayOrder);
+
+                var result = cmd.ExecuteScalar();
+
+                if (result != null)
+                {
+                    int categoryId = Convert.ToInt32(result);
+                    Debug.WriteLine($"[FIND] 이전 카테고리 발견: CategoryId={categoryId}");
+                    return categoryId;
+                }
+                else
+                {
+                    Debug.WriteLine($"[FIND] 이전 카테고리 없음 - SubjectId {subjectId}에 대한 카테고리가 아직 없음");
+
+                    // ✅ 중요: 기본 카테고리를 생성하지 말고 -1 반환하여 저장 로직에서 처리하도록 함
+                    return -1; // 카테고리가 없음을 명시적으로 표시
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[FIND ERROR] FindNearestPreviousCategory 실패: {ex.Message}");
+                return -1; // 에러 시에도 -1 반환
+            }
+        }
+
+        /// <summary>
+        /// DisplayOrder 기반으로 이전 카테고리 찾기
+        /// </summary>
+        public static int FindPreviousCategoryIdByDisplayOrder(int subjectId, int currentDisplayOrder)
         {
             try
             {
                 string query = @"
-                    SELECT subjectId, Name, TotalStudyTimeSeconds, createdDate, lastModifiedDate 
-                    FROM Subject 
-                    WHERE subjectId = @subjectId";
+            SELECT categoryId 
+            FROM category 
+            WHERE subjectId = @subjectId AND displayOrder < @currentDisplayOrder
+            ORDER BY displayOrder DESC 
+            LIMIT 1";
 
-                // 파라미터를 직접 치환 (Helpers.DatabaseHelper는 파라미터 지원 안함)
-                query = query.Replace("@subjectId", subjectId.ToString());
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = query;
+                cmd.Parameters.AddWithValue("@subjectId", subjectId);
+                cmd.Parameters.AddWithValue("@currentDisplayOrder", currentDisplayOrder);
 
-                var result = DatabaseHelper.ExecuteSelect(query);
-                if (result.Rows.Count > 0)
-                {
-                    var row = result.Rows[0];
-                    return new SubjectData
-                    {
-                        SubjectId = Convert.ToInt32(row["subjectId"]),
-                        SubjectName = row["Name"].ToString(),
-                        TotalStudyTimeSeconds = Convert.ToInt32(row["TotalStudyTimeSeconds"]),
-                        CreatedDate = DateTime.Parse(row["createdDate"].ToString()),
-                        LastModifiedDate = DateTime.Parse(row["lastModifiedDate"].ToString())
-                    };
-                }
-
-                Debug.WriteLine($"[NoteRepository] SubjectId {subjectId}를 찾을 수 없음");
-                return null;
+                var result = cmd.ExecuteScalar();
+                return result != null ? Convert.ToInt32(result) : 1; // 기본값 1
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[NoteRepository ERROR] GetSubjectById 실패: {ex.Message}");
-                return null;
+                Debug.WriteLine($"[DB ERROR] FindPreviousCategoryIdByDisplayOrder 실패: {ex.Message}");
+                return 1;
             }
         }
 
-        public static Transaction BeginTransaction()
-        {
-            var conn = new SQLiteConnection(GetConnectionString());
-            conn.Open();
-            var trans = conn.BeginTransaction();
-            return new Transaction(conn, trans);
-        }
-
         /// <summary>
-        /// 새로운 카테고리(제목) 삽입 - 레벨과 부모 ID 포함
+        /// 기본 카테고리 생성 (필요한 경우)
         /// </summary>
-        public static int InsertCategory(string content, int subjectId, int displayOrder = -1,
-            int level = 1, int? parentCategoryId = null, Transaction transaction = null)
+        private static int CreateDefaultCategory(int subjectId)
         {
             try
             {
-                Debug.WriteLine($"[SAVE] 카테고리 넣는 중이다 임마");
+                return InsertCategory("# 기본 섹션", subjectId, 0, 1, null);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] CreateDefaultCategory 실패: {ex.Message}");
+                return 1; // 최소한의 fallback
+            }
+        }
+
+        #endregion
+
+        #region 카테고리 관련 메서드
+
+        /// <summary>
+        /// 새로운 카테고리 삽입 (timeId 올바르게 생성)
+        /// </summary>
+        public static int InsertCategory(string content, int subjectId, int displayOrder = -1, int level = 1,
+            int? parentCategoryId = null, Transaction transaction = null)
+        {
+            try
+            {
+                Debug.WriteLine($"[SAVE] 새 카테고리 생성 시작: {content}");
 
                 if (displayOrder == -1)
                 {
                     displayOrder = GetNextDisplayOrder(subjectId);
-                    Debug.WriteLine($"[SAVE] 이새낀 새거라 자리 찾는다");
                 }
 
                 // 헤딩 레벨 자동 감지
                 int detectedLevel = GetHeadingLevel(content);
-
                 if (detectedLevel > 0)
                 {
                     level = detectedLevel;
@@ -113,23 +218,38 @@ namespace Notea.Modules.Subject.Models
                 }
                 else
                 {
-                    conn = new SQLiteConnection     (GetConnectionString());
+                    conn = new SQLiteConnection(GetConnectionString());
                     conn.Open();
                     shouldDispose = true;
                 }
 
                 try
                 {
+                    // 1. time 레코드 생성
+                    var timeCmd = conn.CreateCommand();
+                    timeCmd.Transaction = trans;
+                    timeCmd.CommandText = @"
+                        INSERT INTO time (createdDate, lastModifiedDate) 
+                        VALUES (@createdDate, @lastModifiedDate);
+                        SELECT last_insert_rowid();";
+
+                    timeCmd.Parameters.AddWithValue("@createdDate", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    timeCmd.Parameters.AddWithValue("@lastModifiedDate", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                    var timeResult = timeCmd.ExecuteScalar();
+                    int timeId = Convert.ToInt32(timeResult);
+
+                    // 2. category 삽입 (timeId 포함)
                     var cmd = conn.CreateCommand();
                     cmd.Transaction = trans;
                     cmd.CommandText = @"
-                    INSERT INTO category (title, subjectId, timeId, displayOrder, level, parentCategoryId)
-                    VALUES (@title, @subjectId, @timeId, @displayOrder, @level, @parentCategoryId);
-                    SELECT last_insert_rowid();";
+                        INSERT INTO category (title, subjectId, timeId, displayOrder, level, parentCategoryId)
+                        VALUES (@title, @subjectId, @timeId, @displayOrder, @level, @parentCategoryId);
+                        SELECT last_insert_rowid();";
 
                     cmd.Parameters.AddWithValue("@title", content);
                     cmd.Parameters.AddWithValue("@subjectId", subjectId);
-                    cmd.Parameters.AddWithValue("@timeId", 1);
+                    cmd.Parameters.AddWithValue("@timeId", timeId);
                     cmd.Parameters.AddWithValue("@displayOrder", displayOrder);
                     cmd.Parameters.AddWithValue("@level", level);
                     cmd.Parameters.AddWithValue("@parentCategoryId", parentCategoryId ?? (object)DBNull.Value);
@@ -137,7 +257,7 @@ namespace Notea.Modules.Subject.Models
                     var result = cmd.ExecuteScalar();
                     int categoryId = Convert.ToInt32(result);
 
-                    Debug.WriteLine($"[DB] 새 카테고리 삽입 완료. CategoryId: {categoryId}, Level: {level}");
+                    Debug.WriteLine($"[DB] 새 카테고리 삽입 완료. CategoryId: {categoryId}, Level: {level}, TimeId: {timeId}");
                     return categoryId;
                 }
                 finally
@@ -156,289 +276,61 @@ namespace Notea.Modules.Subject.Models
         }
 
         /// <summary>
-        /// 카테고리의 부모를 찾는 메서드
-        /// </summary>
-        public static int? FindParentCategory(int subjectId, int currentDisplayOrder, int currentLevel)
-        {
-            try
-            {
-                string query = $@"
-                    SELECT categoryId, level, displayOrder
-                    FROM category 
-                    WHERE subjectId = {subjectId} 
-                    AND displayOrder < {currentDisplayOrder}
-                    AND level < {currentLevel}
-                    ORDER BY displayOrder DESC
-                    LIMIT 1";
-
-                var result = DatabaseHelper.ExecuteSelect(query);
-                if (result.Rows.Count > 0)
-                {
-                    return Convert.ToInt32(result.Rows[0]["categoryId"]);
-                }
-                return null;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[DB ERROR] FindParentCategory 실패: {ex.Message}");
-                return null;
-            }
-        }
-
-        // DB 경로는 DatabaseHelper에서 관리
-        private static string GetConnectionString()
-        {
-            return Notea.Database.DatabaseInitializer.GetConnectionString();
-        }
-
-        public static List<NoteCategory> LoadNotesBySubject(int subjectId)
-        {
-            var result = new List<NoteCategory>();
-            var categoryMap = new Dictionary<int, NoteCategory>();
-
-            try
-            {
-                // 1. 모든 카테고리 로드
-                string categoryQuery = $@"
-                    SELECT categoryId, title, displayOrder, level, parentCategoryId
-                    FROM category 
-                    WHERE subjectId = {subjectId}
-                    ORDER BY displayOrder";
-
-                DataTable categoryTable = DatabaseHelper.ExecuteSelect(categoryQuery);
-
-                foreach (DataRow row in categoryTable.Rows)
-                {
-                    var category = new NoteCategory
-                    {
-                        CategoryId = Convert.ToInt32(row["categoryId"]),
-                        Title = row["title"].ToString(),
-                        Level = row["level"] != DBNull.Value ? Convert.ToInt32(row["level"]) : 1
-                    };
-                    result.Add(category);
-                    categoryMap[category.CategoryId] = category;
-                }
-
-                // 2. 텍스트 로드 (이미지 포함)
-                string textQuery = $@"
-                    SELECT textId, content, categoryId, displayOrder, 
-                           COALESCE(contentType, 'text') as contentType,
-                           imageUrl
-                    FROM noteContent 
-                    WHERE subjectId = {subjectId}
-                    ORDER BY displayOrder";
-
-                DataTable textTable = DatabaseHelper.ExecuteSelect(textQuery);
-
-                foreach (DataRow row in textTable.Rows)
-                {
-                    int categoryId = Convert.ToInt32(row["categoryId"]);
-
-                    if (categoryMap.ContainsKey(categoryId))
-                    {
-                        var noteLine = new NoteLine
-                        {
-                            Index = Convert.ToInt32(row["textId"]),
-                            Content = row["content"].ToString(),
-                            ContentType = row["contentType"].ToString(),
-                            ImageUrl = row["imageUrl"] != DBNull.Value ? row["imageUrl"].ToString() : null
-                        };
-
-                        categoryMap[categoryId].Lines.Add(noteLine);
-                    }
-                }
-
-                Debug.WriteLine($"[NoteRepository] 필기 로드 완료: SubjectId={subjectId}, 카테고리={result.Count}개");
-                return result;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[NoteRepository ERROR] LoadNotesBySubject 실패: {ex.Message}");
-                return result;
-            }
-        }
-
-        public static void RecalculateDisplayOrders(int subjectId)
-        {
-            try
-            {
-                using var conn = new SQLiteConnection(GetConnectionString());
-                conn.Open();
-                using var transaction = conn.BeginTransaction();
-
-                // 모든 라인을 현재 displayOrder 순으로 가져오기
-                var cmd = conn.CreateCommand();
-                cmd.Transaction = transaction;
-                cmd.CommandText = @"
-            SELECT 'category' as type, categoryId as id, displayOrder 
-            FROM category WHERE subjectId = @subjectId
-            UNION ALL
-            SELECT 'text' as type, textId as id, displayOrder 
-            FROM noteContent WHERE subjectId = @subjectId
-            ORDER BY displayOrder, id";
-                cmd.Parameters.AddWithValue("@subjectId", subjectId);
-
-                var lines = new List<(string type, int id, int oldOrder)>();
-                using (var reader = cmd.ExecuteReader())
-                {
-                    while (reader.Read())
-                    {
-                        lines.Add((
-                            reader.GetString(0),
-                            reader.GetInt32(1),
-                            reader.GetInt32(2)
-                        ));
-                    }
-                }
-
-                // 새로운 순서 할당
-                int newOrder = 1;
-                foreach (var line in lines)
-                {
-                    var updateCmd = conn.CreateCommand();
-                    updateCmd.Transaction = transaction;
-
-                    if (line.type == "category")
-                    {
-                        updateCmd.CommandText = @"
-                    UPDATE category SET displayOrder = @order 
-                    WHERE categoryId = @id";
-                    }
-                    else
-                    {
-                        updateCmd.CommandText = @"
-                    UPDATE noteContent SET displayOrder = @order 
-                    WHERE TextId = @id";
-                    }
-
-                    updateCmd.Parameters.AddWithValue("@order", newOrder++);
-                    updateCmd.Parameters.AddWithValue("@id", line.id);
-                    updateCmd.ExecuteNonQuery();
-                }
-
-                transaction.Commit();
-                Debug.WriteLine($"[DB] DisplayOrder 재정렬 완료. 총 {lines.Count}개 라인");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[DB ERROR] RecalculateDisplayOrders 실패: {ex.Message}");
-            }
-        }
-
-        public static int GetNextDisplayOrder(int subjectId)
-        {
-            try
-            {
-                // 카테고리와 텍스트 중 최대 displayOrder 찾기
-                string query = $@"
-                SELECT MAX(displayOrder) as maxOrder FROM (
-                    SELECT displayOrder FROM category WHERE subjectId = {subjectId}
-                    UNION ALL
-                    SELECT displayOrder FROM noteContent WHERE subjectId = {subjectId}
-                )";
-
-                var result = DatabaseHelper.ExecuteSelect(query);
-                if (result.Rows.Count > 0 && result.Rows[0]["maxOrder"] != DBNull.Value)
-                {
-                    return Convert.ToInt32(result.Rows[0]["maxOrder"]) + 1;
-                }
-                return 1;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[DB ERROR] GetNextDisplayOrder 실패: {ex.Message}");
-                return 1;
-            }
-        }
-
-        public static void ShiftDisplayOrdersAfter(int subjectId, int afterOrder)
-        {
-            try
-            {
-                using var conn = new SQLiteConnection(GetConnectionString());
-                conn.Open();
-                using var transaction = conn.BeginTransaction();
-
-                // 카테고리 순서 업데이트
-                var categoryCmd = conn.CreateCommand();
-                categoryCmd.Transaction = transaction;
-                categoryCmd.CommandText = @"
-                UPDATE category 
-                SET displayOrder = displayOrder + 1 
-                WHERE subjectId = @subjectId AND displayOrder > @afterOrder";
-                categoryCmd.Parameters.AddWithValue("@subjectId", subjectId);
-                categoryCmd.Parameters.AddWithValue("@afterOrder", afterOrder);
-                categoryCmd.ExecuteNonQuery();
-
-                // 텍스트 순서 업데이트
-                var contentCmd = conn.CreateCommand();
-                contentCmd.Transaction = transaction;
-                contentCmd.CommandText = @"
-                UPDATE noteContent 
-                SET displayOrder = displayOrder + 1 
-                WHERE subjectId = @subjectId AND displayOrder > @afterOrder";
-                contentCmd.Parameters.AddWithValue("@subjectId", subjectId);
-                contentCmd.Parameters.AddWithValue("@afterOrder", afterOrder);
-                contentCmd.ExecuteNonQuery();
-
-                transaction.Commit();
-                Debug.WriteLine($"[DB] displayOrder 시프트 완료. afterOrder: {afterOrder}");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[DB ERROR] ShiftDisplayOrdersAfter 실패: {ex.Message}");
-            }
-        }
-
-        /// <summary>
-        /// 카테고리로 저장할 제목인지 확인하는 메서드 - # 하나로 시작하는 경우만 카테고리로 저장
-        /// </summary>
-        public static bool IsCategoryHeading(string content)
-        {
-            if (string.IsNullOrWhiteSpace(content)) return false;
-            // ^#\s+ : 라인 시작(^) + # 하나 + 공백(\s+) + 아무 문자
-            // (?!#) : # 다음에 또 #이 오지 않는 경우만
-            return Regex.IsMatch(content.Trim(), @"^#(?!#)\s+.+");
-        }
-
-        /// <summary>
-        /// 마크다운 헤딩인지 확인 (# ~ ######)
-        /// </summary>
-        public static bool IsMarkdownHeading(string content)
-        {
-            if (string.IsNullOrWhiteSpace(content)) return false;
-            return Regex.IsMatch(content.Trim(), @"^#{1,6}\s+.+");
-        }
-
-        /// <summary>
-        /// 헤딩 레벨 추출 (1~6)
-        /// </summary>
-        public static int GetHeadingLevel(string content)
-        {
-            if (string.IsNullOrWhiteSpace(content)) return 0;
-
-            var match = Regex.Match(content.Trim(), @"^(#{1,6})\s+");
-            return match.Success ? match.Groups[1].Value.Length : 0;
-        }
-
-        /// <summary>
-        /// 제목에서 # 기호를 제거하고 실제 제목 텍스트만 추출
-        /// </summary>
-        public static string ExtractHeadingText(string content)
-        {
-            if (string.IsNullOrWhiteSpace(content)) return "";
-
-            var match = Regex.Match(content.Trim(), @"^#{1,6}\s+(.+)");
-            return match.Success ? match.Groups[1].Value.Trim() : content;
-        }
-
-        /// <summary>
         /// 카테고리(제목) 업데이트 - 마크다운 문법 그대로 저장
         /// </summary>
         public static void UpdateCategory(int categoryId, string content, Transaction transaction = null)
         {
-            if (categoryId <= 0) return;
+            try
+            {
+                string title = content;
 
+                SQLiteConnection conn;
+                SQLiteTransaction trans = null;
+                bool shouldDispose = false;
+
+                if (transaction != null)
+                {
+                    conn = transaction.Connection;
+                    trans = transaction.SqliteTransaction;
+                }
+                else
+                {
+                    conn = new SQLiteConnection(GetConnectionString());
+                    conn.Open();
+                    shouldDispose = true;
+                }
+
+                try
+                {
+                    var cmd = conn.CreateCommand();
+                    cmd.Transaction = trans;
+                    cmd.CommandText = "UPDATE category SET title = @title WHERE categoryId = @categoryId";
+                    cmd.Parameters.AddWithValue("@title", title);
+                    cmd.Parameters.AddWithValue("@categoryId", categoryId);
+
+                    int rowsAffected = cmd.ExecuteNonQuery();
+                    Debug.WriteLine($"[DB] 카테고리 업데이트: CategoryId={categoryId}, 제목='{title}', 영향받은 행={rowsAffected}");
+                }
+                finally
+                {
+                    if (shouldDispose)
+                    {
+                        conn?.Dispose();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] UpdateCategory 실패: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 카테고리 레벨 업데이트
+        /// </summary>
+        public static void UpdateCategoryLevel(int categoryId, int newLevel, Transaction transaction = null)
+        {
             try
             {
                 SQLiteConnection conn;
@@ -461,105 +353,153 @@ namespace Notea.Modules.Subject.Models
                 {
                     var cmd = conn.CreateCommand();
                     cmd.Transaction = trans;
-                    cmd.CommandText = @"
-                        UPDATE category 
-                        SET title = @title
-                        WHERE categoryId = @categoryId";
-
-                    cmd.Parameters.AddWithValue("@title", content);
+                    cmd.CommandText = "UPDATE category SET level = @level WHERE categoryId = @categoryId";
+                    cmd.Parameters.AddWithValue("@level", newLevel);
                     cmd.Parameters.AddWithValue("@categoryId", categoryId);
 
                     int rowsAffected = cmd.ExecuteNonQuery();
-                    Debug.WriteLine($"[DB] 카테고리 업데이트 완료. CategoryId: {categoryId}");
+                    Debug.WriteLine($"[DB] 카테고리 레벨 업데이트: CategoryId={categoryId}, 새 레벨={newLevel}, 영향받은 행={rowsAffected}");
                 }
                 finally
                 {
                     if (shouldDispose)
                     {
-                        conn.Dispose();
+                        conn?.Dispose();
                     }
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[DB ERROR] UpdateCategory 실패: {ex.Message}");
+                Debug.WriteLine($"[DB ERROR] UpdateCategoryLevel 실패: {ex.Message}");
+                throw;
             }
         }
 
         /// <summary>
-        /// 카테고리(제목) 삭제 및 관련 noteContent도 함께 삭제
+        /// 카테고리 DisplayOrder 업데이트
+        /// </summary>
+        public static void UpdateCategoryDisplayOrder(int categoryId, int displayOrder, Transaction transaction = null)
+        {
+            try
+            {
+                SQLiteConnection conn;
+                SQLiteTransaction trans = null;
+                bool shouldDispose = false;
+
+                if (transaction != null)
+                {
+                    conn = transaction.Connection;
+                    trans = transaction.SqliteTransaction;
+                }
+                else
+                {
+                    conn = new SQLiteConnection(GetConnectionString());
+                    conn.Open();
+                    shouldDispose = true;
+                }
+
+                try
+                {
+                    var cmd = conn.CreateCommand();
+                    cmd.Transaction = trans;
+                    cmd.CommandText = "UPDATE category SET displayOrder = @displayOrder WHERE categoryId = @categoryId";
+                    cmd.Parameters.AddWithValue("@displayOrder", displayOrder);
+                    cmd.Parameters.AddWithValue("@categoryId", categoryId);
+
+                    cmd.ExecuteNonQuery();
+                }
+                finally
+                {
+                    if (shouldDispose)
+                    {
+                        conn?.Dispose();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] UpdateCategoryDisplayOrder 실패: {ex.Message}");
+                throw;
+            }
+        }
+
+        /// <summary>
+        /// 카테고리 삭제
         /// </summary>
         public static void DeleteCategory(int categoryId, bool deleteTexts = true)
         {
-            if (categoryId <= 0)
-            {
-                Debug.WriteLine($"[WARNING] DeleteCategory 호출됐지만 CategoryId가 유효하지 않음: {categoryId}");
-                return;
-            }
-
             try
             {
-                using var conn = new SQLiteConnection(GetConnectionString());
-                conn.Open();
-
-                using var transaction = conn.BeginTransaction();
-
-                if (deleteTexts)
+                // 기본 카테고리(1)는 삭제하지 않음
+                if (categoryId <= 1)
                 {
-                    // 관련 noteContent도 삭제
-                    var deleteNotesCmd = conn.CreateCommand();
-                    deleteNotesCmd.Transaction = transaction;
-                    deleteNotesCmd.CommandText = "DELETE FROM noteContent WHERE categoryId = @categoryId";
-                    deleteNotesCmd.Parameters.AddWithValue("@categoryId", categoryId);
-                    int notesDeleted = deleteNotesCmd.ExecuteNonQuery();
-                    Debug.WriteLine($"[DB] 삭제된 노트: {notesDeleted}개");
+                    Debug.WriteLine("[WARNING] 기본 카테고리는 삭제할 수 없습니다.");
+                    return;
                 }
 
-                // 카테고리만 삭제
-                var deleteCategoryCmd = conn.CreateCommand();
-                deleteCategoryCmd.Transaction = transaction;
-                deleteCategoryCmd.CommandText = "DELETE FROM category WHERE categoryId = @categoryId";
-                deleteCategoryCmd.Parameters.AddWithValue("@categoryId", categoryId);
-                int categoryDeleted = deleteCategoryCmd.ExecuteNonQuery();
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+                using var transaction = conn.BeginTransaction();
 
-                transaction.Commit();
-                Debug.WriteLine($"[DB] 카테고리 삭제 완료. CategoryId: {categoryId}, 텍스트 삭제 여부: {deleteTexts}");
+                try
+                {
+                    if (deleteTexts)
+                    {
+                        // 해당 카테고리의 모든 텍스트 삭제
+                        var deleteTextsCmd = conn.CreateCommand();
+                        deleteTextsCmd.Transaction = transaction;
+                        deleteTextsCmd.CommandText = "DELETE FROM noteContent WHERE categoryId = @categoryId";
+                        deleteTextsCmd.Parameters.AddWithValue("@categoryId", categoryId);
+                        int deletedTexts = deleteTextsCmd.ExecuteNonQuery();
+                        Debug.WriteLine($"[DB] 카테고리 {categoryId}의 텍스트 {deletedTexts}개 삭제됨");
+                    }
+
+                    // 하위 카테고리들의 부모를 현재 카테고리의 부모로 변경
+                    var updateChildrenCmd = conn.CreateCommand();
+                    updateChildrenCmd.Transaction = transaction;
+                    updateChildrenCmd.CommandText = @"
+                UPDATE category 
+                SET parentCategoryId = (
+                    SELECT parentCategoryId FROM category WHERE categoryId = @categoryId
+                )
+                WHERE parentCategoryId = @categoryId";
+                    updateChildrenCmd.Parameters.AddWithValue("@categoryId", categoryId);
+                    int updatedChildren = updateChildrenCmd.ExecuteNonQuery();
+
+                    // 카테고리 삭제
+                    var deleteCategoryCmd = conn.CreateCommand();
+                    deleteCategoryCmd.Transaction = transaction;
+                    deleteCategoryCmd.CommandText = "DELETE FROM category WHERE categoryId = @categoryId";
+                    deleteCategoryCmd.Parameters.AddWithValue("@categoryId", categoryId);
+                    int deletedCategory = deleteCategoryCmd.ExecuteNonQuery();
+
+                    transaction.Commit();
+
+                    Debug.WriteLine($"[DB] 카테고리 삭제 완료: CategoryId={categoryId}, 하위 카테고리 재할당={updatedChildren}개");
+                }
+                catch (Exception ex)
+                {
+                    transaction.Rollback();
+                    Debug.WriteLine($"[DB ERROR] 카테고리 삭제 실패 (롤백됨): {ex.Message}");
+                    throw;
+                }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DB ERROR] DeleteCategory 실패: {ex.Message}");
+                throw;
             }
         }
 
-        public static void ReassignTextsToCategory(int fromCategoryId, int toCategoryId)
-        {
-            if (fromCategoryId <= 0 || toCategoryId <= 0)
-            {
-                Debug.WriteLine($"[WARNING] ReassignTextsToCategory - 유효하지 않은 CategoryId: from={fromCategoryId}, to={toCategoryId}");
-                return;
-            }
+        #endregion
 
-            try
-            {
-                string query = $@"
-            UPDATE noteContent 
-            SET categoryId = {toCategoryId}
-            WHERE categoryId = {fromCategoryId}";
-
-                int rowsAffected = DatabaseHelper.ExecuteNonQuery(query);
-                Debug.WriteLine($"[DB] 텍스트 재할당 완료. {fromCategoryId} -> {toCategoryId}, 영향받은 행: {rowsAffected}");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[DB ERROR] ReassignTextsToCategory 실패: {ex.Message}");
-            }
-        }
+        #region 텍스트 관련 메서드
 
         /// <summary>
-        /// 새로운 일반 텍스트 라인 삽입
+        /// 새로운 일반 텍스트 라인 삽입 (timeId 올바르게 생성)
         /// </summary>
         public static int InsertNewLine(string content, int subjectId, int categoryId, int displayOrder = -1,
-    string contentType = "text", string imageUrl = null, Transaction transaction = null)
+            string contentType = "text", string imageUrl = null, Transaction transaction = null)
         {
             try
             {
@@ -586,13 +526,27 @@ namespace Notea.Modules.Subject.Models
 
                 try
                 {
+                    // 1. time 레코드 생성
+                    var timeCmd = conn.CreateCommand();
+                    timeCmd.Transaction = trans;
+                    timeCmd.CommandText = @"
+                        INSERT INTO time (createdDate, lastModifiedDate) 
+                        VALUES (@createdDate, @lastModifiedDate);
+                        SELECT last_insert_rowid();";
+
+                    timeCmd.Parameters.AddWithValue("@createdDate", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+                    timeCmd.Parameters.AddWithValue("@lastModifiedDate", DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss"));
+
+                    var timeResult = timeCmd.ExecuteScalar();
+                    int timeId = Convert.ToInt32(timeResult);
+
+                    // 2. noteContent 삽입 (timeId 포함)
                     var cmd = conn.CreateCommand();
                     cmd.Transaction = trans;
-
                     cmd.CommandText = @"
-                INSERT INTO noteContent (content, subjectId, categoryId, displayOrder, contentType, imageUrl)
-                VALUES (@content, @subjectId, @categoryId, @displayOrder, @contentType, @imageUrl);
-                SELECT last_insert_rowid();";
+                        INSERT INTO noteContent (content, subjectId, categoryId, displayOrder, contentType, imageUrl, timeId)
+                        VALUES (@content, @subjectId, @categoryId, @displayOrder, @contentType, @imageUrl, @timeId);
+                        SELECT last_insert_rowid();";
 
                     cmd.Parameters.AddWithValue("@content", content ?? "");
                     cmd.Parameters.AddWithValue("@subjectId", subjectId);
@@ -600,15 +554,16 @@ namespace Notea.Modules.Subject.Models
                     cmd.Parameters.AddWithValue("@displayOrder", displayOrder);
                     cmd.Parameters.AddWithValue("@contentType", contentType);
                     cmd.Parameters.AddWithValue("@imageUrl", imageUrl ?? (object)DBNull.Value);
+                    cmd.Parameters.AddWithValue("@timeId", timeId);
 
-                    Debug.WriteLine($"[DB] InsertNewLine 실행 - Type: {contentType}, ImageUrl: {imageUrl}");
+                    Debug.WriteLine($"[DB] InsertNewLine 실행 - Type: {contentType}, TimeId: {timeId}");
 
                     var result = cmd.ExecuteScalar();
 
                     if (result != null && result != DBNull.Value)
                     {
                         int textId = Convert.ToInt32(result);
-                        Debug.WriteLine($"[DB] 새 라인 삽입 완료. TextId: {textId}");
+                        Debug.WriteLine($"[DB] 새 라인 삽입 완료. TextId: {textId}, TimeId: {timeId}");
                         return textId;
                     }
                     else
@@ -666,13 +621,13 @@ namespace Notea.Modules.Subject.Models
                     var cmd = conn.CreateCommand();
                     cmd.Transaction = trans;
                     cmd.CommandText = @"
-                UPDATE noteContent 
-                SET content = @content,
-                    contentType = @contentType,
-                    imageUrl = @imageUrl,
-                    categoryId = @categoryId,
-                    displayOrder = @displayOrder
-                WHERE textId = @textId";
+                        UPDATE noteContent 
+                        SET content = @content,
+                            contentType = @contentType,
+                            imageUrl = @imageUrl,
+                            categoryId = @categoryId,
+                            displayOrder = @displayOrder
+                        WHERE textId = @textId";
 
                     cmd.Parameters.AddWithValue("@content", line.Content ?? "");
                     cmd.Parameters.AddWithValue("@contentType", line.ContentType);
@@ -682,7 +637,7 @@ namespace Notea.Modules.Subject.Models
                     cmd.Parameters.AddWithValue("@textId", line.TextId);
 
                     int rowsAffected = cmd.ExecuteNonQuery();
-                    Debug.WriteLine($"[DB] 라인 업데이트 완료. TextId: {line.TextId}, 영향받은 행: {rowsAffected}");
+                    Debug.WriteLine($"[DB] 라인 업데이트 완료. TextId: {line.TextId}");
                 }
                 finally
                 {
@@ -698,6 +653,61 @@ namespace Notea.Modules.Subject.Models
             }
         }
 
+        /// <summary>
+        /// 텍스트 라인의 CategoryId 업데이트
+        /// </summary>
+        public static void UpdateLineCategoryId(int textId, int newCategoryId, Transaction transaction = null)
+        {
+            try
+            {
+                SQLiteConnection conn;
+                SQLiteTransaction trans = null;
+                bool shouldDispose = false;
+
+                if (transaction != null)
+                {
+                    conn = transaction.Connection;
+                    trans = transaction.SqliteTransaction;
+                }
+                else
+                {
+                    conn = new SQLiteConnection(GetConnectionString());
+                    conn.Open();
+                    shouldDispose = true;
+                }
+
+                try
+                {
+                    var cmd = conn.CreateCommand();
+                    cmd.Transaction = trans;
+                    cmd.CommandText = @"
+                        UPDATE noteContent 
+                        SET categoryId = @categoryId
+                        WHERE textId = @textId";
+
+                    cmd.Parameters.AddWithValue("@categoryId", newCategoryId);
+                    cmd.Parameters.AddWithValue("@textId", textId);
+
+                    int rowsAffected = cmd.ExecuteNonQuery();
+                    Debug.WriteLine($"[DB] 텍스트 CategoryId 업데이트 완료. TextId: {textId}, 새 CategoryId: {newCategoryId}");
+                }
+                finally
+                {
+                    if (shouldDispose)
+                    {
+                        conn.Dispose();
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] UpdateLineCategoryId 실패: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// 텍스트 라인 DisplayOrder 업데이트
+        /// </summary>
         public static void UpdateLineDisplayOrder(int textId, int displayOrder, Transaction transaction = null)
         {
             try
@@ -723,15 +733,15 @@ namespace Notea.Modules.Subject.Models
                     var cmd = conn.CreateCommand();
                     cmd.Transaction = trans;
                     cmd.CommandText = @"
-                UPDATE noteContent 
-                SET displayOrder = @displayOrder
-                WHERE textId = @textId";
+                        UPDATE noteContent 
+                        SET displayOrder = @displayOrder
+                        WHERE textId = @textId";
 
                     cmd.Parameters.AddWithValue("@displayOrder", displayOrder);
                     cmd.Parameters.AddWithValue("@textId", textId);
 
                     cmd.ExecuteNonQuery();
-                    Debug.WriteLine($"[DB] 텍스트 DisplayOrder 업데이트: TextId={textId}, Order={displayOrder}");
+                    Debug.WriteLine($"[DB] 텍스트 DisplayOrder 업데이트: TextId={textId}, DisplayOrder={displayOrder}");
                 }
                 finally
                 {
@@ -747,7 +757,38 @@ namespace Notea.Modules.Subject.Models
             }
         }
 
-        public static void UpdateCategoryDisplayOrder(int categoryId, int displayOrder, Transaction transaction = null)
+        /// <summary>
+        /// 텍스트 라인 삭제
+        /// </summary>
+        public static void DeleteLine(int textId)
+        {
+            try
+            {
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+
+                var cmd = conn.CreateCommand();
+                cmd.CommandText = "DELETE FROM noteContent WHERE textId = @textId";
+                cmd.Parameters.AddWithValue("@textId", textId);
+
+                int rowsAffected = cmd.ExecuteNonQuery();
+                Debug.WriteLine($"[DB] 라인 삭제 완료: TextId: {textId}, 영향받은 행: {rowsAffected}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] DeleteLine 실패: {ex.Message}");
+                throw;
+            }
+        }
+
+        #endregion
+
+        #region 계층 구조 업데이트 메서드
+
+        /// <summary>
+        /// 특정 displayOrder 이후의 모든 요소의 부모 카테고리 업데이트
+        /// </summary>
+        public static void UpdateSubsequentCategoryHierarchy(int subjectId, int fromDisplayOrder, Transaction transaction = null)
         {
             try
             {
@@ -769,287 +810,430 @@ namespace Notea.Modules.Subject.Models
 
                 try
                 {
-                    var cmd = conn.CreateCommand();
-                    cmd.Transaction = trans;
-                    cmd.CommandText = @"
-                UPDATE category 
-                SET displayOrder = @displayOrder
-                WHERE categoryId = @categoryId";
+                    // 1. 영향받는 모든 카테고리들의 부모 관계 재구성
+                    var categoriesCmd = conn.CreateCommand();
+                    categoriesCmd.Transaction = trans;
+                    categoriesCmd.CommandText = @"
+                SELECT categoryId, level, displayOrder, title
+                FROM category 
+                WHERE subjectId = @subjectId AND displayOrder > @fromDisplayOrder
+                ORDER BY displayOrder";
 
-                    cmd.Parameters.AddWithValue("@displayOrder", displayOrder);
-                    cmd.Parameters.AddWithValue("@categoryId", categoryId);
+                    categoriesCmd.Parameters.AddWithValue("@subjectId", subjectId);
+                    categoriesCmd.Parameters.AddWithValue("@fromDisplayOrder", fromDisplayOrder);
 
-                    cmd.ExecuteNonQuery();
-                    Debug.WriteLine($"[DB] 카테고리 DisplayOrder 업데이트: CategoryId={categoryId}, Order={displayOrder}");
+                    var categories = new List<(int CategoryId, int Level, int DisplayOrder, string Title)>();
+                    using var reader = categoriesCmd.ExecuteReader();
+                    while (reader.Read())
+                    {
+                        categories.Add((
+                            Convert.ToInt32(reader["categoryId"]),
+                            Convert.ToInt32(reader["level"]),
+                            Convert.ToInt32(reader["displayOrder"]),
+                            reader["title"].ToString()
+                        ));
+                    }
+                    reader.Close();
+
+                    // 2. 각 카테고리의 새로운 부모 찾기 및 업데이트
+                    foreach (var category in categories)
+                    {
+                        int? newParentId = FindParentCategoryByLevel(subjectId, category.Level, category.DisplayOrder);
+
+                        var updateCmd = conn.CreateCommand();
+                        updateCmd.Transaction = trans;
+                        updateCmd.CommandText = "UPDATE category SET parentCategoryId = @parentId WHERE categoryId = @categoryId";
+                        updateCmd.Parameters.AddWithValue("@parentId", (object)newParentId ?? DBNull.Value);
+                        updateCmd.Parameters.AddWithValue("@categoryId", category.CategoryId);
+
+                        updateCmd.ExecuteNonQuery();
+
+                        Debug.WriteLine($"[DB] 카테고리 부모 관계 업데이트: CategoryId={category.CategoryId}, 새 부모={newParentId}");
+                    }
+
+                    Debug.WriteLine($"[DB] 계층 구조 업데이트 완료: {categories.Count}개 카테고리 처리됨");
                 }
                 finally
                 {
                     if (shouldDispose)
                     {
-                        conn.Dispose();
+                        conn?.Dispose();
                     }
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[DB ERROR] UpdateCategoryDisplayOrder 실패: {ex.Message}");
+                Debug.WriteLine($"[DB ERROR] UpdateSubsequentCategoryHierarchy 실패: {ex.Message}");
+                throw;
             }
         }
 
         /// <summary>
-        /// 일반 텍스트 라인 삭제
+        /// 계층 구조 변경 후 텍스트들의 CategoryId 재할당
         /// </summary>
-        public static void DeleteLine(int textId)
+        private static void UpdateTextCategoriesAfterHierarchyChange(int subjectId, int fromDisplayOrder, SQLiteTransaction trans)
         {
-            if (textId <= 0)
-            {
-                Debug.WriteLine($"[WARNING] DeleteLine 호출됐지만 TextId가 유효하지 않음: {textId}");
-                return;
-            }
-
             try
             {
-                string query = $"DELETE FROM noteContent WHERE textId = {textId}";
-                int rowsAffected = DatabaseHelper.ExecuteNonQuery(query);
-                Debug.WriteLine($"[DB] 라인 삭제 완료. TextId: {textId}, 영향받은 행: {rowsAffected}");
+                // displayOrder 순으로 모든 텍스트 가져오기
+                var textsCmd = new SQLiteCommand(@"
+                    SELECT textId, displayOrder
+                    FROM noteContent 
+                    WHERE subjectId = @subjectId AND displayOrder > @fromDisplayOrder
+                    ORDER BY displayOrder", trans.Connection, trans);
+
+                textsCmd.Parameters.AddWithValue("@subjectId", subjectId);
+                textsCmd.Parameters.AddWithValue("@fromDisplayOrder", fromDisplayOrder);
+
+                var texts = new List<(int TextId, int DisplayOrder)>();
+                using var reader = textsCmd.ExecuteReader();
+                while (reader.Read())
+                {
+                    texts.Add((
+                        Convert.ToInt32(reader["textId"]),
+                        Convert.ToInt32(reader["displayOrder"])
+                    ));
+                }
+                reader.Close();
+
+                // 각 텍스트의 새로운 CategoryId 찾기
+                foreach (var text in texts)
+                {
+                    var categoryCmd = new SQLiteCommand(@"
+                        SELECT categoryId 
+                        FROM category 
+                        WHERE subjectId = @subjectId AND displayOrder < @textDisplayOrder
+                        ORDER BY displayOrder DESC 
+                        LIMIT 1", trans.Connection, trans);
+
+                    categoryCmd.Parameters.AddWithValue("@subjectId", subjectId);
+                    categoryCmd.Parameters.AddWithValue("@textDisplayOrder", text.DisplayOrder);
+
+                    var newCategoryId = categoryCmd.ExecuteScalar();
+                    if (newCategoryId != null)
+                    {
+                        var updateCmd = new SQLiteCommand(@"
+                            UPDATE noteContent 
+                            SET categoryId = @categoryId 
+                            WHERE textId = @textId", trans.Connection, trans);
+
+                        updateCmd.Parameters.AddWithValue("@categoryId", Convert.ToInt32(newCategoryId));
+                        updateCmd.Parameters.AddWithValue("@textId", text.TextId);
+                        updateCmd.ExecuteNonQuery();
+                    }
+                }
+
+                Debug.WriteLine($"[DB] {texts.Count}개 텍스트의 CategoryId 재할당 완료");
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[DB ERROR] DeleteLine 실패: {ex.Message}");
+                Debug.WriteLine($"[DB ERROR] UpdateTextCategoriesAfterHierarchyChange 실패: {ex.Message}");
             }
         }
 
+        #endregion
+
+        #region 저장 로직
+
         /// <summary>
-        /// 라인이 제목인지 일반 텍스트인지 판단하여 적절히 저장
+        /// 라인이 제목인지 일반 텍스트인지 판단하여 적절히 저장 (개선된 버전)
         /// </summary>
         public static void SaveOrUpdateLine(MarkdownLineViewModel line)
         {
             try
             {
-                if (IsCategoryHeading(line.Content))  // # 하나만 카테고리로 저장
+                Debug.WriteLine($"[SAVE] 라인 저장 시작 - SubjectId: {line.SubjectId}, Content: '{line.Content?.Substring(0, Math.Min(20, line.Content?.Length ?? 0))}', CategoryId: {line.CategoryId}, IsHeading: {line.IsHeadingLine}");
+
+                if (IsCategoryHeading(line.Content))
                 {
-                    // 카테고리(제목)인 경우
+                    // 제목인 경우 (기존 로직 유지)
                     if (line.IsHeadingLine && line.CategoryId > 0)
                     {
-                        // 기존 제목 업데이트
                         UpdateCategory(line.CategoryId, line.Content);
+                        int newLevel = GetHeadingLevel(line.Content);
+                        UpdateCategoryLevel(line.CategoryId, newLevel);
+                        UpdateSubsequentCategoryHierarchy(line.SubjectId, line.DisplayOrder);
+                        Debug.WriteLine($"[SAVE] 기존 제목 업데이트 완료. CategoryId: {line.CategoryId}");
                     }
                     else
                     {
-                        // 새로운 제목 삽입
-                        int newCategoryId = InsertCategory(line.Content, line.SubjectId, line.DisplayOrder);
+                        int level = GetHeadingLevel(line.Content);
+                        int? parentId = FindParentCategoryByLevel(line.SubjectId, level, line.DisplayOrder);
+                        int newCategoryId = InsertCategory(line.Content, line.SubjectId, line.DisplayOrder, level, parentId);
                         line.CategoryId = newCategoryId;
                         line.IsHeadingLine = true;
+                        UpdateSubsequentCategoryHierarchy(line.SubjectId, line.DisplayOrder);
+                        Debug.WriteLine($"[SAVE] 새 제목 생성 완료. CategoryId: {newCategoryId}, SubjectId: {line.SubjectId}");
                     }
                 }
                 else
                 {
-                    // CategoryId가 없으면 저장하지 않음
+                    // 일반 텍스트인 경우
                     if (line.CategoryId <= 0)
                     {
-                        Debug.WriteLine($"[WARNING] CategoryId가 유효하지 않아 저장 건너뜀. CategoryId: {line.CategoryId}");
-                        return;
+                        line.CategoryId = FindNearestPreviousCategory(line.SubjectId, line.DisplayOrder);
+
+                        // ✅ 중요: CategoryId가 -1이면 (카테고리가 없으면) 저장하지 않음
+                        if (line.CategoryId <= 0)
+                        {
+                            Debug.WriteLine($"[SAVE] 카테고리 없음 - 텍스트 저장 스킵. SubjectId: {line.SubjectId}, Content: '{line.Content}'");
+                            Debug.WriteLine($"[SAVE] 힌트: 먼저 제목(# 텍스트)을 입력하여 카테고리를 생성하세요.");
+                            return;
+                        }
+
+                        Debug.WriteLine($"[SAVE] 이전 카테고리 찾음: CategoryId={line.CategoryId}");
                     }
 
-                    // 일반 텍스트인 경우 (##, ### 등도 포함)
                     if (line.TextId <= 0)
                     {
-                        // 새로운 라인 삽입
-                        int newTextId = InsertNewLine(line.Content, line.SubjectId, line.CategoryId);
+                        int newTextId = InsertNewLine(line.Content, line.SubjectId, line.CategoryId, line.DisplayOrder, line.ContentType, line.ImageUrl);
                         line.TextId = newTextId;
+                        Debug.WriteLine($"[SAVE] 새 텍스트 생성 완료. TextId: {newTextId}, SubjectId: {line.SubjectId}, CategoryId: {line.CategoryId}");
                     }
                     else
                     {
-                        // 기존 라인 업데이트
                         UpdateLine(line);
+                        Debug.WriteLine($"[SAVE] 기존 텍스트 업데이트 완료. TextId: {line.TextId}, SubjectId: {line.SubjectId}");
                     }
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[DB ERROR] SaveOrUpdateLine 실패: {ex.Message}");
+                Debug.WriteLine($"[SAVE ERROR] SaveOrUpdateLine 실패: {ex.Message}");
+                Debug.WriteLine($"[SAVE ERROR] Line - SubjectId: {line.SubjectId}, Content: '{line.Content}', CategoryId: {line.CategoryId}");
                 throw;
             }
         }
 
-        /// <summary>
-        /// 여러 라인을 한 번에 처리 (트랜잭션)
-        /// </summary>
-        public static void SaveLinesInTransaction(List<MarkdownLineViewModel> lines)
-        {
-            using var conn = new SQLiteConnection(GetConnectionString());
-            conn.Open();
+        #endregion
 
-            using var transaction = conn.BeginTransaction();
-            try
-            {
-                foreach (var line in lines)
-                {
-                    if (line.CategoryId <= 0)
-                    {
-                        Debug.WriteLine($"[WARNING] 트랜잭션 중 CategoryId가 유효하지 않은 라인 건너뜀. Content: {line.Content}");
-                        continue;
-                    }
-
-                    if (IsCategoryHeading(line.Content))  // # 하나만 카테고리로 저장
-                    {
-                        // 제목 처리
-                        if (line.IsHeadingLine && line.CategoryId > 0)
-                        {
-                            var cmd = conn.CreateCommand();
-                            cmd.Transaction = transaction;
-                            cmd.CommandText = @"
-                                UPDATE category 
-                                SET title = @title
-                                WHERE categoryId = @categoryId";
-
-                            cmd.Parameters.AddWithValue("@title", line.Content);
-                            cmd.Parameters.AddWithValue("@categoryId", line.CategoryId);
-                            cmd.ExecuteNonQuery();
-                        }
-                    }
-                    else
-                    {
-                        // 일반 텍스트 처리
-                        if (line.TextId > 0)
-                        {
-                            var cmd = conn.CreateCommand();
-                            cmd.Transaction = transaction;
-                            cmd.CommandText = @"
-                                UPDATE noteContent 
-                                SET content = @content
-                                WHERE textId = @textId";
-
-                            cmd.Parameters.AddWithValue("@content", line.Content ?? "");
-                            cmd.Parameters.AddWithValue("@textId", line.TextId);
-                            cmd.ExecuteNonQuery();
-                        }
-                    }
-                }
-
-                transaction.Commit();
-                Debug.WriteLine($"[DB] 트랜잭션으로 {lines.Count}개 라인 저장 완료");
-            }
-            catch (Exception ex)
-            {
-                transaction.Rollback();
-                Debug.WriteLine($"[DB ERROR] 트랜잭션 실패, 롤백됨: {ex.Message}");
-                throw;
-            }
-        }
+        #region 데이터 로딩 메서드
 
         /// <summary>
-        /// 카테고리 로드 시 계층 구조 포함
+        /// displayOrder 기반으로 모든 요소를 순차적으로 로드 (새로운 방식)
         /// </summary>
-        public static List<NoteCategory> LoadNotesBySubjectWithHierarchy(int subjectId)
+        public static List<NoteCategory> LoadNotesBySubjectByDisplayOrder(int subjectId)
         {
             var allCategories = new List<NoteCategory>();
-            var categoryMap = new Dictionary<int, NoteCategory>();
-            var rootCategories = new List<NoteCategory>();
 
             try
             {
-                // 1. 모든 카테고리 로드
-                string categoryQuery = $@"
-            SELECT categoryId, title, displayOrder, level, parentCategoryId
+                Debug.WriteLine($"[DB] LoadNotesBySubjectByDisplayOrder 시작: SubjectId={subjectId}");
+
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+
+                // ✅ 1단계: 실제 데이터가 있는지 개별적으로 확인
+                Debug.WriteLine($"[DB] 개별 테이블 확인 시작...");
+
+                // category 테이블 확인
+                using var categoryCmd = conn.CreateCommand();
+                categoryCmd.CommandText = "SELECT COUNT(*) FROM category WHERE subjectId = @subjectId";
+                categoryCmd.Parameters.AddWithValue("@subjectId", subjectId);
+                var categoryCount = Convert.ToInt32(categoryCmd.ExecuteScalar());
+                Debug.WriteLine($"[DB] category 테이블: {categoryCount}개 레코드 (subjectId={subjectId})");
+
+                // noteContent 테이블 확인
+                using var noteCmd = conn.CreateCommand();
+                noteCmd.CommandText = "SELECT COUNT(*) FROM noteContent WHERE subjectId = @subjectId";
+                noteCmd.Parameters.AddWithValue("@subjectId", subjectId);
+                var noteCount = Convert.ToInt32(noteCmd.ExecuteScalar());
+                Debug.WriteLine($"[DB] noteContent 테이블: {noteCount}개 레코드 (subjectId={subjectId})");
+
+                // ✅ 2단계: 실제 UNION 쿼리 실행
+                var allElementsCmd = conn.CreateCommand();
+                allElementsCmd.CommandText = @"
+            SELECT 'category' as type, categoryId as id, title as content, displayOrder, level, 
+                   parentCategoryId, null as contentType, null as imageUrl
             FROM category 
-            WHERE subJectId = {subjectId}
+            WHERE subjectId = @subjectId
+            
+            UNION ALL
+            
+            SELECT 'text' as type, textId as id, content, displayOrder, 1 as level,
+                   categoryId as parentCategoryId, contentType, imageUrl
+            FROM noteContent 
+            WHERE subjectId = @subjectId
+            
             ORDER BY displayOrder";
 
-                DataTable categoryTable = DatabaseHelper.ExecuteSelect(categoryQuery);
+                allElementsCmd.Parameters.AddWithValue("@subjectId", subjectId);
 
-                foreach (DataRow row in categoryTable.Rows)
+                var allElements = new List<(string Type, int Id, string Content, int DisplayOrder, int Level, int? ParentId, string ContentType, string ImageUrl)>();
+
+                using var reader = allElementsCmd.ExecuteReader();
+                while (reader.Read())
                 {
-                    var category = new NoteCategory
-                    {
-                        CategoryId = Convert.ToInt32(row["categoryId"]),
-                        Title = row["title"].ToString(),
-                        Level = row["level"] != DBNull.Value ? Convert.ToInt32(row["level"]) : 1
-                    };
+                    var element = (
+                        reader["type"].ToString(),
+                        Convert.ToInt32(reader["id"]),
+                        reader["content"].ToString(),
+                        Convert.ToInt32(reader["displayOrder"]),
+                        Convert.ToInt32(reader["level"]),
+                        reader["parentCategoryId"] == DBNull.Value ? 0 : Convert.ToInt32(reader["parentCategoryId"]),
+                        reader["contentType"]?.ToString(),
+                        reader["imageUrl"]?.ToString()
+                    );
 
-                    allCategories.Add(category);
-                    categoryMap[category.CategoryId] = category;
+                    allElements.Add(element);
+                    Debug.WriteLine($"[LOAD] 요소: {element.Item1} - ID:{element.Item2} - Content:'{element.Item3.Substring(0, Math.Min(20, element.Item3.Length))}' - DisplayOrder:{element.Item4}");
+                }
+                reader.Close();
 
-                    // parentCategoryId가 없으면 루트 카테고리
-                    if (row["parentCategoryId"] == DBNull.Value)
+                Debug.WriteLine($"[DB] UNION 쿼리 결과: 총 {allElements.Count}개 요소");
+
+                // ✅ 3단계: 데이터가 없으면 더 자세한 조사
+                if (allElements.Count == 0)
+                {
+                    Debug.WriteLine($"[DB] 데이터 없음 - 추가 조사 시작");
+
+                    // 전체 category 테이블 확인
+                    using var allCatCmd = conn.CreateCommand();
+                    allCatCmd.CommandText = "SELECT categoryId, subjectId, title FROM category LIMIT 5";
+                    using var allCatReader = allCatCmd.ExecuteReader();
+                    Debug.WriteLine($"[DB] 전체 category 테이블 샘플:");
+                    while (allCatReader.Read())
                     {
-                        rootCategories.Add(category);
+                        Debug.WriteLine($"  CategoryId: {allCatReader["categoryId"]}, SubjectId: {allCatReader["subjectId"]}, Title: '{allCatReader["title"]}'");
                     }
+                    allCatReader.Close();
+
+                    // 전체 noteContent 테이블 확인
+                    using var allNoteCmd = conn.CreateCommand();
+                    allNoteCmd.CommandText = "SELECT textId, subjectId, content FROM noteContent LIMIT 5";
+                    using var allNoteReader = allNoteCmd.ExecuteReader();
+                    Debug.WriteLine($"[DB] 전체 noteContent 테이블 샘플:");
+                    while (allNoteReader.Read())
+                    {
+                        Debug.WriteLine($"  TextId: {allNoteReader["textId"]}, SubjectId: {allNoteReader["subjectId"]}, Content: '{allNoteReader["content"]}'");
+                    }
+                    allNoteReader.Close();
+
+                    return allCategories; // 빈 리스트 반환
                 }
 
-                // 2. 계층 구조 구성
-                foreach (DataRow row in categoryTable.Rows)
-                {
-                    if (row["parentCategoryId"] != DBNull.Value)
-                    {
-                        int categoryId = Convert.ToInt32(row["categoryId"]);
-                        int parentId = Convert.ToInt32(row["parentCategoryId"]);
+                // 4단계: 계층 구조 구성 (기존 로직 유지하되 로그 강화)
+                NoteCategory currentCategory = null;
+                var categoryStack = new Stack<NoteCategory>();
+                var categoryMap = new Dictionary<int, NoteCategory>();
 
-                        if (categoryMap.ContainsKey(parentId) && categoryMap.ContainsKey(categoryId))
+                foreach (var element in allElements)
+                {
+                    if (element.Type == "category")
+                    {
+                        var category = new NoteCategory
                         {
-                            categoryMap[parentId].SubCategories.Add(categoryMap[categoryId]);
+                            CategoryId = element.Id,
+                            Title = element.Content,
+                            DisplayOrder = element.DisplayOrder,
+                            Level = element.Level,
+                            ParentCategoryId = (int)element.ParentId,
+                            Lines = new List<NoteLine>(),
+                            SubCategories = new List<NoteCategory>()
+                        };
+
+                        categoryMap[element.Id] = category;
+                        allCategories.Add(category); // 일단 모든 카테고리를 루트에 추가 (나중에 계층 구조 정리)
+                        currentCategory = category;
+
+                        Debug.WriteLine($"[LOAD] 카테고리 생성: '{category.Title}' (ID: {category.CategoryId}, Level: {category.Level})");
+                    }
+                    else if (element.Type == "text")
+                    {
+                        var line = new NoteLine
+                        {
+                            Index = element.Id,
+                            Content = element.Content,
+                            ContentType = element.ContentType ?? "text",
+                            ImageUrl = element.ImageUrl,
+                            DisplayOrder = element.DisplayOrder
+                        };
+
+                        // ParentId를 사용해서 해당 카테고리 찾기
+                        if (element.ParentId.HasValue && categoryMap.ContainsKey(element.ParentId.Value))
+                        {
+                            var targetCategory = categoryMap[element.ParentId.Value];
+                            targetCategory.Lines.Add(line);
+                            Debug.WriteLine($"[LOAD] 텍스트 추가: '{line.Content.Substring(0, Math.Min(30, line.Content.Length))}' → 카테고리 '{targetCategory.Title}'");
+                        }
+                        else
+                        {
+                            Debug.WriteLine($"[LOAD ERROR] 텍스트 '{line.Content}'의 카테고리 ID {element.ParentId}를 찾을 수 없음");
                         }
                     }
                 }
 
-                // 3. 모든 텍스트 로드
-                string textQuery = $@"
-            SELECT textId, content, categoryId, displayOrder
-            FROM noteContent 
-            WHERE subJectId = {subjectId}
-            ORDER BY displayOrder";
+                Debug.WriteLine($"[DB] LoadNotesBySubjectByDisplayOrder 완료. 카테고리 수: {allCategories.Count}");
 
-                DataTable textTable = DatabaseHelper.ExecuteSelect(textQuery);
-
-                foreach (DataRow row in textTable.Rows)
-                {
-                    int categoryId = Convert.ToInt32(row["categoryId"]);
-
-                    if (categoryMap.ContainsKey(categoryId))
-                    {
-                        categoryMap[categoryId].Lines.Add(new NoteLine
-                        {
-                            Index = Convert.ToInt32(row["textId"]),
-                            Content = row["content"].ToString()
-                        });
-                    }
-                    else
-                    {
-                        Debug.WriteLine($"[WARNING] 텍스트의 카테고리를 찾을 수 없음. CategoryId: {categoryId}, TextId: {row["textId"]}");
-                    }
-                }
-
-                Debug.WriteLine($"[DB] LoadNotesBySubjectWithHierarchy 완료. 루트 카테고리 수: {rootCategories.Count}");
+                // 각 카테고리의 라인 수 출력
                 foreach (var cat in allCategories)
                 {
-                    Debug.WriteLine($"  카테고리 '{cat.Title}' (ID: {cat.CategoryId}) - 텍스트 수: {cat.Lines.Count}");
+                    Debug.WriteLine($"[DB] 카테고리 '{cat.Title}': {cat.Lines.Count}개 라인");
                 }
 
-                // 계층 구조가 없는 단순한 경우 모든 카테고리 반환
-                return rootCategories.Count > 0 ? rootCategories : allCategories;
+                return allCategories;
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[DB ERROR] LoadNotesBySubjectWithHierarchy 실패: {ex.Message}");
+                Debug.WriteLine($"[DB ERROR] LoadNotesBySubjectByDisplayOrder 실패: {ex.Message}");
+                Debug.WriteLine($"[DB ERROR] StackTrace: {ex.StackTrace}");
+                return allCategories;
             }
-
-            return rootCategories;
         }
 
-        private static NoteCategory FindCategoryById(List<NoteCategory> categories, int categoryId)
+        public static List<NoteCategory> LoadNotesBySubjectWithHierarchy(int subjectId)
         {
-            foreach (var category in categories)
-            {
-                if (category.CategoryId == categoryId)
-                    return category;
-
-                var found = FindCategoryById(category.SubCategories, categoryId);
-                if (found != null)
-                    return found;
-            }
-            return null;
+            // ✅ 새로운 displayOrder 기반 로딩 방식 사용
+            return LoadNotesBySubjectByDisplayOrder(subjectId);
         }
 
+        /// <summary>
+        /// 기존 LoadNotesBySubject도 새로운 방식으로 리다이렉트
+        /// </summary>
+        public static List<NoteCategory> LoadNotesBySubject(int subjectId)
+        {
+            // ✅ 새로운 displayOrder 기반 로딩 방식 사용
+            return LoadNotesBySubjectByDisplayOrder(subjectId);
+        }
+
+        #endregion
+
+        #region 유틸리티 메서드
+
+        /// <summary>
+        /// 다음 DisplayOrder 값 생성
+        /// </summary>
+        public static int GetNextDisplayOrder(int subjectId)
+        {
+            try
+            {
+                string query = @"
+                    SELECT COALESCE(MAX(displayOrder), 0) + 1 as nextOrder
+                    FROM (
+                        SELECT displayOrder FROM category WHERE subjectId = @subjectId
+                        UNION ALL
+                        SELECT displayOrder FROM noteContent WHERE subjectId = @subjectId
+                    )";
+
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = query;
+                cmd.Parameters.AddWithValue("@subjectId", subjectId);
+
+                var result = cmd.ExecuteScalar();
+                return result != null ? Convert.ToInt32(result) : 1;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] GetNextDisplayOrder 실패: {ex.Message}");
+                return 1;
+            }
+        }
+
+        /// <summary>
+        /// Subject 관련 메서드들
+        /// </summary>
         public static int GetSubjectIdByName(string subjectName)
         {
             try
@@ -1074,7 +1258,6 @@ namespace Notea.Modules.Subject.Models
             }
         }
 
-        // ✅ 새로 추가: Subject 테이블에서 과목명 조회
         public static string GetSubjectNameById(int subjectId)
         {
             try
@@ -1099,133 +1282,98 @@ namespace Notea.Modules.Subject.Models
             }
         }
 
-        public static int CreateCategory(int subjectId, string title, int level = 1, int? parentCategoryId = null)
+        /// <summary>
+        /// 트랜잭션 래퍼 클래스
+        /// </summary>
+        public class Transaction : IDisposable
         {
-            try
+            public SQLiteConnection Connection { get; }
+            public SQLiteTransaction SqliteTransaction { get; }
+
+            public Transaction(SQLiteConnection connection, SQLiteTransaction transaction)
             {
-                // 1. Subject 존재 확인
-                string subjectExistsQuery = $"SELECT COUNT(*) as count FROM Subject WHERE subjectId = {subjectId}";
-                var subjectResult = DatabaseHelper.ExecuteSelect(subjectExistsQuery);
-
-                if (subjectResult.Rows.Count == 0 || Convert.ToInt32(subjectResult.Rows[0]["count"]) == 0)
-                {
-                    Debug.WriteLine($"[NoteRepository ERROR] SubjectId {subjectId}가 Subject 테이블에 없음");
-                    return 0;
-                }
-
-                // 2. time 레코드 생성
-                string timeQuery = $@"
-                    INSERT INTO time (createdDate, lastModifiedDate) 
-                    VALUES ('{DateTime.Now:yyyy-MM-dd HH:mm:ss}', '{DateTime.Now:yyyy-MM-dd HH:mm:ss}')";
-                DatabaseHelper.ExecuteNonQuery(timeQuery);
-
-                // 3. timeId 조회
-                string getTimeIdQuery = "SELECT last_insert_rowid() as timeId";
-                var timeResult = DatabaseHelper.ExecuteSelect(getTimeIdQuery);
-                int timeId = timeResult.Rows.Count > 0 ? Convert.ToInt32(timeResult.Rows[0]["timeId"]) : 1;
-
-                // 4. 카테고리 생성
-                string insertQuery = $@"
-                    INSERT INTO category (title, subjectId, timeId, level, parentCategoryId, displayOrder) 
-                    VALUES ('{title.Replace("'", "''")}', {subjectId}, {timeId}, {level}, 
-                            {(parentCategoryId.HasValue ? parentCategoryId.Value.ToString() : "NULL")}, 
-                            (SELECT COALESCE(MAX(displayOrder), 0) + 1 FROM category WHERE subjectId = {subjectId}))";
-
-                DatabaseHelper.ExecuteNonQuery(insertQuery);
-
-                // 5. categoryId 조회
-                string getCategoryIdQuery = "SELECT last_insert_rowid() as categoryId";
-                var categoryResult = DatabaseHelper.ExecuteSelect(getCategoryIdQuery);
-                int categoryId = categoryResult.Rows.Count > 0 ? Convert.ToInt32(categoryResult.Rows[0]["categoryId"]) : 0;
-
-                Debug.WriteLine($"[NoteRepository] 카테고리 생성: ID={categoryId}, Title={title}, SubjectId={subjectId}");
-                return categoryId;
+                Connection = connection;
+                SqliteTransaction = transaction;
             }
-            catch (Exception ex)
+
+            public void Commit()
             {
-                Debug.WriteLine($"[NoteRepository ERROR] CreateCategory 실패: {ex.Message}");
-                return 0;
+                SqliteTransaction.Commit();
+            }
+
+            public void Rollback()
+            {
+                SqliteTransaction.Rollback();
+            }
+
+            public void Dispose()
+            {
+                SqliteTransaction?.Dispose();
+                Connection?.Dispose();
             }
         }
 
-        public static int CreateText(int subjectId, int categoryId, string content, string contentType = "text", string imageUrl = null)
+        /// <summary>
+        /// 트랜잭션 시작
+        /// </summary>
+        public static Transaction BeginTransaction()
         {
-            try
-            {
-                // 1. time 레코드 생성
-                string timeQuery = $@"
-                    INSERT INTO time (createdDate, lastModifiedDate) 
-                    VALUES ('{DateTime.Now:yyyy-MM-dd HH:mm:ss}', '{DateTime.Now:yyyy-MM-dd HH:mm:ss}')";
-                DatabaseHelper.ExecuteNonQuery(timeQuery);
-
-                // 2. timeId 조회
-                string getTimeIdQuery = "SELECT last_insert_rowid() as timeId";
-                var timeResult = DatabaseHelper.ExecuteSelect(getTimeIdQuery);
-                int timeId = timeResult.Rows.Count > 0 ? Convert.ToInt32(timeResult.Rows[0]["timeId"]) : 1;
-
-                // 3. 텍스트 저장
-                string imageUrlPart = imageUrl != null ? $"'{imageUrl.Replace("'", "''")}'" : "NULL";
-                string insertQuery = $@"
-                    INSERT INTO noteContent (content, categoryId, subjectId, timeId, contentType, imageUrl, displayOrder) 
-                    VALUES ('{content.Replace("'", "''")}', {categoryId}, {subjectId}, {timeId}, 
-                            '{contentType}', {imageUrlPart},
-                            (SELECT COALESCE(MAX(displayOrder), 0) + 1 FROM noteContent WHERE subjectId = {subjectId}))";
-
-                DatabaseHelper.ExecuteNonQuery(insertQuery);
-
-                // 4. textId 조회
-                string getTextIdQuery = "SELECT last_insert_rowid() as textId";
-                var textResult = DatabaseHelper.ExecuteSelect(getTextIdQuery);
-                int textId = textResult.Rows.Count > 0 ? Convert.ToInt32(textResult.Rows[0]["textId"]) : 0;
-
-                Debug.WriteLine($"[NoteRepository] 텍스트 생성: ID={textId}, Type={contentType}");
-                return textId;
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[NoteRepository ERROR] CreateText 실패: {ex.Message}");
-                return 0;
-            }
+            var conn = new SQLiteConnection(GetConnectionString());
+            conn.Open();
+            var trans = conn.BeginTransaction();
+            return new Transaction(conn, trans);
         }
 
-        public static void EnsureDefaultCategory(int subjectId)
+        #endregion
+
+        #region 레거시 메서드들 (호환성을 위해 유지)
+
+        /// <summary>
+        /// 텍스트 재할당 (호환성용)
+        /// </summary>
+        public static void ReassignTextsToCategory(int fromCategoryId, int toCategoryId)
         {
             try
             {
-                // 1. Subject 테이블에 해당 과목이 있는지 확인
-                string subjectExistsQuery = $"SELECT COUNT(*) as count FROM Subject WHERE subjectId = {subjectId}";
-                var subjectResult = DatabaseHelper.ExecuteSelect(subjectExistsQuery);
+                if (fromCategoryId == toCategoryId) return;
 
-                if (subjectResult.Rows.Count == 0 || Convert.ToInt32(subjectResult.Rows[0]["count"]) == 0)
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+                using var transaction = conn.BeginTransaction();
+
+                try
                 {
-                    Debug.WriteLine($"[NoteRepository] SubjectId {subjectId}가 Subject 테이블에 없음");
-                    return;
+                    // noteContent 테이블의 텍스트들 재할당
+                    var updateTextsCmd = conn.CreateCommand();
+                    updateTextsCmd.Transaction = transaction;
+                    updateTextsCmd.CommandText = @"
+                UPDATE noteContent 
+                SET categoryId = @toCategoryId 
+                WHERE categoryId = @fromCategoryId";
+
+                    updateTextsCmd.Parameters.AddWithValue("@toCategoryId", toCategoryId);
+                    updateTextsCmd.Parameters.AddWithValue("@fromCategoryId", fromCategoryId);
+
+                    int affectedRows = updateTextsCmd.ExecuteNonQuery();
+
+                    transaction.Commit();
+
+                    Debug.WriteLine($"[DB] 텍스트 재할당 완료: {fromCategoryId} → {toCategoryId}, 영향받은 행: {affectedRows}");
                 }
-
-                // 2. 기본 카테고리 확인
-                string checkQuery = $"SELECT COUNT(*) as count FROM category WHERE categoryId = 1 AND subjectId = {subjectId}";
-                var result = DatabaseHelper.ExecuteSelect(checkQuery);
-
-                if (result.Rows.Count > 0 && Convert.ToInt32(result.Rows[0]["count"]) == 0)
+                catch (Exception ex)
                 {
-                    // 3. time 테이블에 기본 레코드 추가
-                    string timeQuery = $@"
-                        INSERT INTO time (createdDate, lastModifiedDate) 
-                        VALUES ('{DateTime.Now:yyyy-MM-dd HH:mm:ss}', '{DateTime.Now:yyyy-MM-dd HH:mm:ss}')";
-                    DatabaseHelper.ExecuteNonQuery(timeQuery);
-
-                    // 4. 기본 카테고리 생성
-                    string insertQuery = $@"
-                        INSERT INTO category (categoryId, title, subjectId, timeId, displayOrder, level) 
-                        VALUES (1, ' ', {subjectId}, 1, 0, 1)";
-                    DatabaseHelper.ExecuteNonQuery(insertQuery);
-                    Debug.WriteLine($"[NoteRepository] 기본 카테고리 생성: SubjectId={subjectId}");
+                    transaction.Rollback();
+                    Debug.WriteLine($"[DB ERROR] 텍스트 재할당 실패 (롤백됨): {ex.Message}");
+                    throw;
                 }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[NoteRepository ERROR] EnsureDefaultCategory 실패: {ex.Message}");
+                Debug.WriteLine($"[DB ERROR] ReassignTextsToCategory 실패: {ex.Message}");
+                throw;
             }
         }
+
+        #endregion
     }
 }

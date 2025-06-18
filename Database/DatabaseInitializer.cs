@@ -314,18 +314,26 @@ namespace Notea.Database
 
                 if (topicItemExists)
                 {
-                    cmd.CommandText = @"
-                INSERT INTO TopicItem_new (Id, categoryId, Content, CreatedAt)
-                SELECT Id, TopicGroupId, Content, CreatedAt FROM TopicItem";
-                    cmd.ExecuteNonQuery();
+                    // 기존 TopicItem 테이블의 컬럼 구조 확인
+                    cmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('TopicItem') WHERE name='TopicGroupId'";
+                    var hasTopicGroupId = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
 
-                    cmd.CommandText = "DROP TABLE TopicItem";
-                    cmd.ExecuteNonQuery();
-
-                    cmd.CommandText = "ALTER TABLE TopicItem_new RENAME TO TopicItem";
-                    cmd.ExecuteNonQuery();
-
-                    Debug.WriteLine("[DB] TopicItem 테이블 구조 변경 완료: TopicGroupId → categoryId");
+                    if (hasTopicGroupId)
+                    {
+                        // TopicGroupId가 있는 경우만 마이그레이션 실행
+                        cmd.CommandText = @"
+            INSERT INTO TopicItem_new (Id, categoryId, Content, CreatedAt)
+            SELECT Id, TopicGroupId, Content, CreatedAt FROM TopicItem";
+                        cmd.ExecuteNonQuery();
+                    }
+                    else
+                    {
+                        // 이미 categoryId를 사용하는 경우 그대로 복사
+                        cmd.CommandText = @"
+            INSERT INTO TopicItem_new (Id, categoryId, Content, CreatedAt)
+            SELECT Id, categoryId, Content, CreatedAt FROM TopicItem";
+                        cmd.ExecuteNonQuery();
+                    }
                 }
 
                 Debug.WriteLine("[DB] TopicGroup → category 통합 완료");
@@ -334,92 +342,6 @@ namespace Notea.Database
             {
                 Debug.WriteLine($"[DB WARNING] TopicGroup 통합 실패: {ex.Message}");
                 // 마이그레이션 실패해도 진행 (새 설치의 경우)
-            }
-        }
-
-        private static void MigrateOldSubjectTable(SQLiteConnection connection)
-        {
-            try
-            {
-                using var cmd = connection.CreateCommand();
-
-                // 1. 기존 subject 테이블 존재 확인
-                cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='subject'";
-                var tableExists = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
-
-                if (tableExists)
-                {
-                    // 2. 기존 데이터를 Subject 테이블로 복사
-                    cmd.CommandText = @"
-                INSERT OR IGNORE INTO Subject (subjectId, Name, createdDate, lastModifiedDate)
-                SELECT subJectId, title, createdDate, lastModifiedDate 
-                FROM subject";
-
-                    var migratedRows = cmd.ExecuteNonQuery();
-                    Debug.WriteLine($"[DB] subject → Subject 마이그레이션: {migratedRows}개 행");
-
-                    // 3. category/noteContent 테이블의 외래키 업데이트
-                    cmd.CommandText = @"
-                UPDATE category 
-                SET subjectId = (
-                    SELECT s.subjectId 
-                    FROM Subject s, subject old_s 
-                    WHERE s.Name = old_s.title AND old_s.subJectId = category.subjectId
-                )
-                WHERE EXISTS (
-                    SELECT 1 FROM subject old_s WHERE old_s.subJectId = category.subjectId
-                )";
-                    cmd.ExecuteNonQuery();
-
-                    cmd.CommandText = @"
-                UPDATE noteContent 
-                SET subjectId = (
-                    SELECT s.subjectId 
-                    FROM Subject s, subject old_s 
-                    WHERE s.Name = old_s.title AND old_s.subJectId = noteContent.subjectId
-                )
-                WHERE EXISTS (
-                    SELECT 1 FROM subject old_s WHERE old_s.subJectId = noteContent.subjectId
-                )";
-                    cmd.ExecuteNonQuery();
-
-                    // 4. 기존 subject 테이블 삭제
-                    cmd.CommandText = "DROP TABLE subject";
-                    cmd.ExecuteNonQuery();
-                    Debug.WriteLine("[DB] 기존 subject 테이블 삭제 완료");
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[DB WARNING] subject 테이블 마이그레이션 실패: {ex.Message}");
-                // 마이그레이션 실패해도 진행 (새 설치의 경우)
-            }
-        }
-
-        private static void MigrateSubjectTables(SQLiteConnection connection)
-        {
-            try
-            {
-                using var cmd = connection.CreateCommand();
-
-                // 기존 subject 테이블 데이터를 Subject 테이블로 이동
-                cmd.CommandText = @"
-            INSERT OR IGNORE INTO Subject (subjectId, Name, createdDate, lastModifiedDate)
-            SELECT subJectId, title, createdDate, lastModifiedDate 
-            FROM subject 
-            WHERE EXISTS (SELECT 1 FROM sqlite_master WHERE type='table' AND name='subject')";
-
-                var migratedRows = cmd.ExecuteNonQuery();
-                Debug.WriteLine($"[DB] subject → Subject 마이그레이션: {migratedRows}개 행 이동됨");
-
-                // 기존 subject 테이블 삭제
-                cmd.CommandText = "DROP TABLE IF EXISTS subject";
-                cmd.ExecuteNonQuery();
-                Debug.WriteLine("[DB] 기존 subject 테이블 삭제됨");
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[DB ERROR] 테이블 마이그레이션 실패: {ex.Message}");
             }
         }
 

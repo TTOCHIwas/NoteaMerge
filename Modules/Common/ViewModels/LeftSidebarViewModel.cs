@@ -50,12 +50,16 @@ namespace Notea.Modules.Common.ViewModels
         {
             get
             {
+                System.Diagnostics.Debug.WriteLine($"[LeftSidebarViewModel] Subjects 호출 - Context: {_currentContext}, SharedSubjectProgress: {SharedSubjectProgress?.Count ?? 0}개");
+
                 // today 컨텍스트이고 공유 데이터가 있으면 SharedSubjectProgress 반환
                 if (_currentContext == "today" && SharedSubjectProgress != null)
                 {
+                    System.Diagnostics.Debug.WriteLine($"[LeftSidebarViewModel] SharedSubjectProgress 반환");
                     return SharedSubjectProgress;
                 }
                 // 기본적으로는 SubjectGroups 반환
+                System.Diagnostics.Debug.WriteLine($"[LeftSidebarViewModel] SubjectGroups 반환: {SubjectGroups.Count}개");
                 return SubjectGroups;
             }
         }

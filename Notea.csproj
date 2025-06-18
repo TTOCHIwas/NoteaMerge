@@ -9,6 +9,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <None Remove="Resources\Fonts\PretendardVariable.ttf" />
     <None Remove="Resources\Images\add_default.svg" />
     <None Remove="Resources\Images\add_hover.svg" />
     <None Remove="Resources\Images\add_schedule.svg" />
@@ -37,6 +38,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Resource Include="Resources\Fonts\PretendardVariable.ttf" />
     <Resource Include="Resources\Images\add_default.svg" />
     <Resource Include="Resources\Images\add_hover.svg" />
     <Resource Include="Resources\Images\add_schedule.svg" />

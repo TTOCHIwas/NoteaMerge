@@ -5,7 +5,19 @@ namespace Notea.Modules.Daily.ViewModels
 {
     public class DailyHeaderViewModel : INotifyPropertyChanged
     {
-        public string Title => "오늘 할 일";
+        private string _title;
+        public string Title
+        {
+            get => _title;
+            set
+            {
+                if (_title != value)
+                {
+                    _title = value;
+                    OnPropertyChanged(nameof(Title));
+                }
+            }
+        }
 
         private string _currentDate;
         public string CurrentDate
@@ -28,6 +40,7 @@ namespace Notea.Modules.Daily.ViewModels
 
         public DailyHeaderViewModel()
         {
+            Title = "오늘 할 일";
             CurrentDate = DateTime.Now.ToString("yyyy.MM.dd");
         }
 
