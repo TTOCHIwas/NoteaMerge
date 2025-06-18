@@ -258,11 +258,15 @@ private UserControl _headerContent;
                 }
                 else
                 {
-                    // 파싱 실패 시 현재 날짜로 설정
                     _calendarMonthView.CurrentDate = DateTime.Now;
                 }
 
-                SidebarViewModel.SetContext("calendar");
+                // ✅ 수정: 사이드바 컨텍스트를 "today"로 변경 (프로그래스 리스트 표시)
+                SidebarViewModel.SetContext("today");
+
+                // ✅ 추가: 공유 데이터 연결
+                SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
+
                 System.Diagnostics.Debug.WriteLine("[Navigation] 캘린더 이동 완료");
             }
             catch (Exception ex)

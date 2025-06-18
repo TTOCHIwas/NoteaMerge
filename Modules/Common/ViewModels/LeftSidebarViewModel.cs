@@ -102,24 +102,28 @@ namespace Notea.Modules.Common.ViewModels
                 };
             }
 
+            OnPropertyChanged(nameof(SidebarTitle));
             OnPropertyChanged(nameof(Subjects));
+            OnPropertyChanged(nameof(SidebarContentView));
         }
 
         public void SetContext(string context)
         {
             _currentContext = context;
-            SidebarTitle = context == "main" ? "과목" : "오늘 할 일";
 
+            // ✅ 수정: calendar도 today와 같은 처리
             if (context == "main")
             {
+                SidebarTitle = "과목";
                 LoadSubjectsFromDatabase();
                 SidebarContentView = new SubjectListView
                 {
                     DataContext = this
                 };
             }
-            else // "today"
+            else // "today" 또는 "calendar"
             {
+                SidebarTitle = "오늘 할 일";
                 SidebarContentView = new SubjectProgressListView
                 {
                     DataContext = this

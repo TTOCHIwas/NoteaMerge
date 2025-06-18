@@ -46,8 +46,8 @@
                            HorizontalAlignment="Center" Cursor="Hand">
                         <TextBlock.InputBindings>
                             <MouseBinding MouseAction="LeftClick"
-                                  Command="{Binding NavigateToCalendarCommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
-                                          CommandParameter="{Binding CurrentDate}"/>
+                                  Command="{Binding DataContext.NavigateToCalendarCommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                      CommandParameter="{Binding CurrentDate}"/>
                         </TextBlock.InputBindings>
                     </TextBlock>
                 </Grid>

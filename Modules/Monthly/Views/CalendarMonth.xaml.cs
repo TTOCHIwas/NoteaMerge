@@ -1,5 +1,6 @@
 ﻿using Notea.Helpers;
 using Notea.Modules.Monthly.Models;
+using Notea.Modules.Monthly.ViewModels;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -36,6 +37,11 @@ namespace Notea.Modules.Monthly.Views
                     LoadEvents();
                     LoadMonthComment(); // 추가
                     DrawDays();
+                }
+                // ✅ 수정: MonthlyPlanViewModel의 LoadMonthComment 호출
+                if (DataContext is MonthlyPlanViewModel monthlyPlanVM)
+                {
+                    monthlyPlanVM.LoadMonthComment(_currentDate);
                 }
             }
         }
@@ -109,9 +115,9 @@ namespace Notea.Modules.Monthly.Views
         public CalendarMonth()
         {
             InitializeComponent();
-            //DaysInCurrentMonth = new ObservableCollection<CalendarDay>();
-            //InitializeDate();
-            //InitializeDayLabels();
+            DaysInCurrentMonth = new ObservableCollection<CalendarDay>();
+            InitializeDate();
+            InitializeDayLabels();
         }
 
         
@@ -154,8 +160,12 @@ namespace Notea.Modules.Monthly.Views
 
         private void SetDateByCurrentDate()
         {
+            if (date != null) // null 체크 추가
+            { }
             date.Text = CurrentDate.Year.ToString() + " / " + CurrentDate.Month.ToString("00");
         }
+        
+  
 
         internal void CalendarEventClicked(CalendarEventView eventToSelect)
         {
