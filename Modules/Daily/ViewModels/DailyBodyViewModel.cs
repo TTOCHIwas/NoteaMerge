@@ -684,11 +684,32 @@ namespace Notea.Modules.Daily.ViewModels
               if (!IsToday) return TodayStudyTime; // 다른 날짜일때는 해당 날짜의 총 공부시간
         
               var dday = _db.GetNextDDay();
-              return dday.HasValue ? $"D-{dday.Value.DaysLeft}" : "-"; // D-Day가 있으면 남은 날짜, 없으면 "-"
+                if (dday.HasValue)
+                {
+                    // D-Day까지 남은 날짜가 0이면 "D-Day"라고 표시합니다.
+                    if (dday.Value.DaysLeft == 0)
+                    {
+                        return "D-Day";
+                    }
+                    // 0이 아니면 기존처럼 "D-남은날짜"로 표시합니다.
+                    else
+                    {
+                        return $"D-{dday.Value.DaysLeft}";
+                    }
+                }
+
+                // D-Day가 없으면 "-"를 반환합니다.
+                return "-";
             }
         }
 
-public bool IsToday => SelectedDate.Date == DateTime.Today;
+        public void RefreshDdayInfo()
+        {
+            OnPropertyChanged(nameof(InfoTitle));
+            OnPropertyChanged(nameof(InfoContent));
+        }
+
+        public bool IsToday => SelectedDate.Date == DateTime.Today;
 
         private DateTime _selectedDate;
         public DateTime SelectedDate

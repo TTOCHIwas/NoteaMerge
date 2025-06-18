@@ -169,7 +169,8 @@ private UserControl _headerContent;
             _calendarMonthView = new CalendarMonth { DataContext = _monthlyPlanVM };
 
             // ✅ 수정: YearMonthListView DataContext 제거 (생성자에서 이미 설정됨)
-            _yearMonthListView = new YearMonthListView { DataContext =_yearMonthListVM};
+            _yearMonthListView = new YearMonthListView{DataContext = _yearMonthListVM};
+            //_yearMonthListView.DataContext = _yearMonthListVM; // 명시적 설정
 
             // 초기 화면 설정 (Daily 화면)
             HeaderContent = _dailyHeaderView;
@@ -217,6 +218,7 @@ private UserControl _headerContent;
 
         private void NavigateToToday()
         {
+            _dailyBodyVM.RefreshDdayInfo(); // D-Day 정보 갱신
             try
             {
                 IsHeaderVisible=true; // 헤더 표시
@@ -224,7 +226,16 @@ private UserControl _headerContent;
                 BodyContent = _dailyBodyView;
                 SidebarViewModel.SetContext("main");
 
-                System.Diagnostics.Debug.WriteLine("[MainViewModel] 오늘 페이지로 이동");
+                // 1. Body ViewModel에 오늘 날짜의 데이터를 로드하라고 명령합니다.
+                _dailyBodyVM.LoadDailyData(DateTime.Now);
+
+                // 2. Header ViewModel에 표시될 날짜를 오늘 날짜로 설정하라고 명령합니다.
+                _dailyHeaderVM.SetSelectedDate(DateTime.Now);
+
+                // 3. (D-Day 기능 사용 시) D-Day 정보도 새로고침합니다.
+                _dailyBodyVM.RefreshDdayInfo();
+
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 오늘 페이지로 이동 및 데이터 새로고침 완료");
             }
             catch (Exception ex)
             {
@@ -316,6 +327,7 @@ private UserControl _headerContent;
         /// </summary>
         private void NavigateToDailyViewForDate(DateTime selectedDate)
         {
+            _dailyBodyVM.RefreshDdayInfo(); // D-Day 정보 갱신
             try
             {
                 System.Diagnostics.Debug.WriteLine($"[Navigation] Daily 뷰로 이동 - 날짜: {selectedDate.ToShortDateString()}");

@@ -1938,12 +1938,12 @@ namespace Notea.Modules.Common.Helpers
                     conn.Open();
                     using var cmd = conn.CreateCommand();
                     cmd.CommandText = @"
-                SELECT title, CAST(julianday(startDate) - julianday('now', 'localtime') AS INTEGER) as daysLeft
-                FROM monthlyEvent
-                WHERE isDday = 1 
-                  AND date(startDate) >= date('now', 'localtime')
-                ORDER BY startDate ASC
-                LIMIT 1";
+                    SELECT title, CAST(julianday(date(startDate)) - julianday(date('now', 'localtime')) AS INTEGER) as daysLeft
+                    FROM monthlyEvent
+                    WHERE isDday = 1 
+                      AND date(startDate) >= date('now', 'localtime')
+                    ORDER BY startDate ASC
+                    LIMIT 1";
 
                     using var reader = cmd.ExecuteReader();
                     if (reader.Read())

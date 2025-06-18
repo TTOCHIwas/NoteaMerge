@@ -1,19 +1,8 @@
-﻿using System.Text;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
+﻿using System.Windows;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 using Notea.ViewModels;
 using Notea.Modules.Common.ViewModels;
 using Notea.Modules.Common.Views;
-using Notea.Modules.Common.ViewModels;
-using Notea.Modules.Common.Views;
-using Notea.ViewModels;
 
 namespace Notea;
 

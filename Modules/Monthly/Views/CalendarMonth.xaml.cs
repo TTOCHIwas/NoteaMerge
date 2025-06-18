@@ -1,6 +1,7 @@
 ﻿using Notea.Helpers;
 using Notea.Modules.Monthly.Models;
 using Notea.Modules.Monthly.ViewModels;
+using Notea.ViewModels;
 using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
@@ -291,7 +292,7 @@ namespace Notea.Modules.Monthly.Views
                     VALUES (
                         '{newEvent.Title}',
                         '{newEvent.Description}',
-                        '{newEvent.IsDday}',
+                        {Convert.ToInt32(newEvent.IsDday)}, 
                         '{formattedStartDate}',
                         '{formattedEndDate}',
                         '#1E1E1E'
@@ -302,6 +303,17 @@ namespace Notea.Modules.Monthly.Views
                 MessageBox.Show(result > 0 ? "일정 저장 성공" : "저장 실패");
                 list?.Add(newEvent);
                 DrawDays();
+            }
+        }
+        private void DateTextBlock_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            // MainWindow의 DataContext에서 MainViewModel을 찾아 커맨드를 실행합니다.
+            if (Application.Current.MainWindow?.DataContext is MainViewModel mainVM)
+            {
+                if (mainVM.NavigateToYearlyCommand.CanExecute(null))
+                {
+                    mainVM.NavigateToYearlyCommand.Execute(null);
+                }
             }
         }
 
