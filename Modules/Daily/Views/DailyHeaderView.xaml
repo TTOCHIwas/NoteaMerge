@@ -5,7 +5,8 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              xmlns:vm="clr-namespace:Notea.Modules.Daily.ViewModels"
              mc:Ignorable="d"
-             d:DesignHeight="100">
+             VerticalAlignment="Stretch"
+             >
 
     <!-- ViewModel 연결 -->
     <UserControl.DataContext>
@@ -16,7 +17,7 @@
         <Grid Margin="20,10">
             <!--  상단 타이틀 + 날짜 -->
             <Border BorderBrush="#555555" BorderThickness="0,0,0,0">
-                <Grid Height="auto" VerticalAlignment="Center">
+                <Grid Height="auto" VerticalAlignment="Stretch">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="11*"/>
                         <ColumnDefinition Width="auto"/>
@@ -26,22 +27,19 @@
                     <!-- 타이틀 -->
                     <TextBlock Grid.Column="0"
                            Text="오늘 할 일"
-                           FontSize="32"
-                           FontWeight="Bold"
+                           Style="{StaticResource titleStyle}"
                            VerticalAlignment="Center" />
 
                     <!-- 구분선 -->
-                    <Rectangle Grid.Column="1" Margin="10,0"
+                    <Rectangle Grid.Column="1" Margin="12"
                            Fill="#555555"
                            Width="2"
-                           Height="80"
-                           VerticalAlignment="Center"/>
+                           VerticalAlignment="Stretch"/>
 
                     <!-- 날짜 -->
                     <TextBlock Grid.Column="2"
                            Text="{Binding CurrentDate}"
-                           FontSize="32"
-                           FontWeight="Bold"
+                           Style="{StaticResource titleStyle}"
                            VerticalAlignment="Center"
                            HorizontalAlignment="Center"/>
                 </Grid>

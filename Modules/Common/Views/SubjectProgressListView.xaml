@@ -17,50 +17,51 @@
     <Border x:Name="DropTargetBorder">
         <!-- 과목 리스트 -->
         <ScrollViewer VerticalScrollBarVisibility="Auto">
-            <StackPanel Orientation="Vertical" Margin="0,10">
+            <StackPanel Orientation="Vertical" Margin="0">
                 <ItemsControl ItemsSource="{Binding Subjects}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <StackPanel Margin="0,0,0,15">
+                            <StackPanel Margin="0,0,0,5">
                                 <!-- 과목 헤더 - 기존 구조에 진행률 정보만 추가 -->
-                                <Grid Height="60" Margin="0,5"
+                                <Grid Margin="0,5"
+                                      Style="{StaticResource SubjectGridHoverEffecte}"
                                       MouseLeftButtonDown="SubjectName_MouseLeftButtonDown"
                                       MouseMove="SubjectName_MouseMove"
                                       MouseLeftButtonUp="SubjectProgressItem_MouseLeftButtonUp">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <!-- 과목명 -->
-                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="auto"/>
                                         <!-- 진행률바 컨테이너 -->
-                                        <ColumnDefinition Width="60"/>
+                                        <ColumnDefinition Width="auto"/>
                                         <!-- ✅ 새로 추가: 진행률 퍼센트 -->
                                     </Grid.ColumnDefinitions>
 
                                     <!-- 과목명 영역 - 시간 정보 추가 -->
-                                    <StackPanel Grid.Column="0" VerticalAlignment="Center">
+                                    <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="20">
                                         <TextBlock Text="{Binding SubjectName}" 
-                                                   FontSize="16" 
-                                                   FontWeight="Bold" 
+                                                   Style="{StaticResource subjectTitleStyle}"
                                                    VerticalAlignment="Center"
                                                    HorizontalAlignment="Left"
                                                    MouseLeftButtonDown="SubjectName_MouseLeftButtonDown"
                                                    MouseMove="SubjectName_MouseMove"
                                                    Background="Transparent"/>
 
-                                        <!-- ✅ 새로 추가: 학습시간 표시 (작은 텍스트) -->
+                                        <!-- ✅ 새로 추가: 학습시간 표시 (작은 텍스트) --><!--
                                         <TextBlock Text="{Binding StudyTimeText}" 
                                                    FontSize="11"
                                                    Foreground="#0066CC"
-                                                   Margin="0,2,0,0"/>
+                                                   Margin="0,2,0,0"/>-->
                                     </StackPanel>
 
                                     <!-- ✅ 실제 측정된 진행률바 (기존과 동일) -->
                                     <Border Grid.Column="1" 
                                             Height="20" 
+                                            Width="auto"
                                             Background="#F0F0F0"
                                             VerticalAlignment="Center"
                                             ToolTip="{Binding Tooltip}">
-                                        <Rectangle Fill="#000000" HorizontalAlignment="Right">
+                                        <Rectangle Fill="{StaticResource black}" HorizontalAlignment="Right">
                                             <Rectangle.Width>
                                                 <MultiBinding Converter="{StaticResource DynamicProgressToWidthConverter}">
                                                     <Binding Path="ActualProgress"/>
@@ -72,6 +73,7 @@
 
                                     <!-- ✅ 새로 추가: 진행률 퍼센트 표시 -->
                                     <TextBlock Grid.Column="2" 
+                                               Margin="0, 0, 20, 0"
                                                Text="{Binding ProgressPercentText}" 
                                                FontSize="12"
                                                Foreground="#666666"
@@ -81,72 +83,79 @@
                                 </Grid>
 
                                 <!-- TopicGroups 표시 - 기존 구조에 진행률 정보만 추가 -->
-                                <ItemsControl ItemsSource="{Binding TopicGroups}" Margin="20,0,0,0">
+                                <ItemsControl ItemsSource="{Binding TopicGroups}">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
                                             <StackPanel>
                                                 <!-- 분류 제목 및 진행률 -->
-                                                <Grid Height="60" 
+                                                <Grid Margin="20,5, 0, 5"
+                                                      Style="{StaticResource SubjectGridHoverEffecte}"
                                                       MouseLeftButtonDown="TopicGroup_MouseLeftButtonDown"
                                                       MouseMove="TopicGroup_MouseMove"
-                                                      Background="Transparent">
+                                                      >
                                                     <Grid.ColumnDefinitions>
                                                         <!-- 체크박스, 분류명 -->
                                                         <ColumnDefinition Width="*"/>
                                                         <!-- 진행률바 컨테이너 -->
-                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="auto"/>
                                                         <!-- ✅ 새로 추가: 진행률 퍼센트 -->
-                                                        <ColumnDefinition Width="50"/>
+                                                        <ColumnDefinition Width="auto"/>
                                                     </Grid.ColumnDefinitions>
 
                                                     <!-- 체크박스와 분류명 영역 - 시간 정보 추가 -->
-                                                    <Grid Grid.Column="0">
+                                                    <Grid Grid.Column="0" Margin="20">
                                                         <Grid.ColumnDefinitions>
                                                             <ColumnDefinition Width="auto"/>
-                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="auto"/>
                                                         </Grid.ColumnDefinitions>
 
                                                         <!-- 분류 체크박스 -->
                                                         <CheckBox Grid.Column="0" 
+                                                                  Height="24"
+                                                                  Width="24"
                                                                   Style="{StaticResource ToDoCheckBoxStyle}"
                                                                   VerticalAlignment="Center" 
                                                                   IsChecked="{Binding IsCompleted, Mode=TwoWay}"/>
 
-                                                        <!-- 분류명과 시간 -->
-                                                        <StackPanel Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center">
-                                                            <!-- 분류명 -->
-                                                            <TextBlock Text="{Binding GroupTitle}" 
-                                                                       FontSize="14" 
-                                                                       FontWeight="SemiBold" 
-                                                                       VerticalAlignment="Center"/>
-
-                                                            <!-- ✅ 새로 추가: 분류별 학습시간 -->
-                                                            <TextBlock Text="{Binding RealTimeStudyTimeDisplay}" 
-                                                                       FontSize="10"
-                                                                       Foreground="#FF9500"
-                                                                       Margin="0,1,0,0"/>
-                                                        </StackPanel>
+                                                        <!-- 분류명 -->
+                                                        <TextBlock Grid.Column="1"
+                                                                    Text="{Binding GroupTitle}" 
+                                                                    Style="{StaticResource subjectCategoryStyle}"
+                                                                    Margin="10,0,0,0"
+                                                                    FontWeight="SemiBold" 
+                                                                    VerticalAlignment="Center"/>
                                                     </Grid>
 
-                                                    <!-- ✅ 분류 진행률바 (기존과 동일) -->
                                                     <Border Grid.Column="1" 
                                                             Height="20" 
-                                                            Background="#F0F0F0"
+                                                            Width="auto"
+                                                            Background="Transparent"
                                                             VerticalAlignment="Center"
                                                             Margin="10,0,0,0"
                                                             ToolTip="{Binding StudyTimeTooltip}">
-                                                        <Rectangle Fill="#000000" HorizontalAlignment="Right">
-                                                            <Rectangle.Width>
-                                                                <MultiBinding Converter="{StaticResource DynamicProgressToWidthConverter}">
-                                                                    <Binding Path="ProgressRatio"/>
-                                                                    <Binding Path="ActualWidth" RelativeSource="{RelativeSource AncestorType=Border}"/>
-                                                                </MultiBinding>
-                                                            </Rectangle.Width>
-                                                        </Rectangle>
+                                                        <Grid VerticalAlignment="Center" HorizontalAlignment="Right" Margin="10, 0, 10, 0">
+                                                            <Rectangle Fill="{StaticResource black}" HorizontalAlignment="Right">
+                                                                <Rectangle.Width>
+                                                                    <MultiBinding Converter="{StaticResource DynamicProgressToWidthConverter}">
+                                                                        <Binding Path="ProgressRatio"/>
+                                                                        <Binding Path="ActualWidth" RelativeSource="{RelativeSource AncestorType=Border}"/>
+                                                                    </MultiBinding>
+                                                                </Rectangle.Width>
+                                                            </Rectangle>
+                                                            <!--<TextBlock Text="{Binding RealTimeStudyTimeDisplay}" 
+                                                                        Style="{StaticResource subjectTitleStyle}"
+                                                                        HorizontalAlignment="Right"
+                                                                        FontSize="10"
+                                                                        Foreground="{StaticResource black}"
+                                                                        Margin="0,1,0,0"/>-->
+                                                        </Grid>
+                                                        
+
                                                     </Border>
 
                                                     <!-- ✅ 새로 추가: 분류별 진행률 퍼센트 -->
                                                     <TextBlock Grid.Column="2" 
+                                                               Margin="0, 0, 20, 0"
                                                                Text="{Binding ProgressRatioPercentText}" 
                                                                FontSize="10"
                                                                Foreground="#666666"
