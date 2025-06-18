@@ -321,10 +321,13 @@ namespace Notea.Modules.Subject.ViewModels
         {
             if ((DateTime.Now - _lastActivityTime).TotalSeconds >= IDLE_TIMEOUT_SECONDS)
             {
-                Debug.WriteLine($"[IDLE] {IDLE_TIMEOUT_SECONDS}초간 유휴 상태 감지. 자동 저장 시작.");
-                DebugPrintCurrentState();
-                UpdateActivity();
-                SaveAllChanges();
+                // 실제 변경사항이 있는 경우만 저장
+                var hasRealChanges = Lines.Any(l => l.HasChanges);
+                if (hasRealChanges)
+                {
+                    UpdateActivity();
+                    SaveAllChanges();
+                }
             }
         }
 
@@ -985,77 +988,97 @@ namespace Notea.Modules.Subject.ViewModels
             CurrentCategoryId = currentCategoryId;
             Debug.WriteLine($"[DEBUG] 모든 라인의 CategoryId 업데이트 완료. 현재 카테고리: {CurrentCategoryId}");
         }
-
+        private static readonly object _saveLock = new object();
         // 변경된 라인만 저장
         public void SaveAllChanges()
         {
-            try
+            lock (_saveLock) // 동시 저장 방지
             {
-                // DisplayOrder가 변경된 라인도 포함
-                var changedLines = Lines.Where(l =>
-                    l.HasChanges ||
-                    l.DisplayOrder != l.Index + 1 ||
-                    (l.TextId > 0 && !l.IsHeadingLine) // 기존 텍스트도 확인
-                ).ToList();
-
-                if (!changedLines.Any())
-                {
-                    Debug.WriteLine("[SAVE] 변경사항 없음");
-                    return;
-                }
-
-                Debug.WriteLine($"[SAVE] {changedLines.Count}개 라인 저장 시작");
-                DebugPrintCurrentState();
-
-                using var transaction = NoteRepository.BeginTransaction();
                 try
                 {
-                    // 먼저 모든 DisplayOrder 업데이트
-                    UpdateAllDisplayOrders(transaction);
-
-                    foreach (var line in changedLines)
+                    var editingLine = Lines.FirstOrDefault(l => l.IsEditing);
+                    if (editingLine != null)
                     {
-                        SaveLine(line, transaction);
+                        Debug.WriteLine("[SAVE] 편집 중인 라인 감지 - 저장 지연");
+                        return; // 편집이 완료될 때까지 저장 지연
                     }
 
-                    transaction.Commit();
-                    Debug.WriteLine($"[SAVE] 트랜잭션 커밋 완료");
+                    // DisplayOrder가 변경된 라인도 포함
+                    var changedLines = Lines.Where(l =>
+                        l.HasChanges ||
+                        l.DisplayOrder != l.Index + 1 ||
+                        (l.TextId > 0 && !l.IsHeadingLine) // 기존 텍스트도 확인
+                    ).ToList();
 
-                    // 저장 후 원본 상태 업데이트
-                    foreach (var line in changedLines)
+                    if (!changedLines.Any())
                     {
-                        line.ResetChanges();
+                        Debug.WriteLine("[SAVE] 변경사항 없음");
+                        return;
+                    }
+
+                    Debug.WriteLine($"[SAVE] {changedLines.Count}개 라인 저장 시작");
+                    DebugPrintCurrentState();
+
+                    using var transaction = NoteRepository.BeginTransaction();
+                    try
+                    {
+                        // 먼저 모든 DisplayOrder 업데이트
+                        UpdateAllDisplayOrders(transaction);
+
+                        foreach (var line in changedLines)
+                        {
+                            SaveLine(line, transaction);
+                        }
+
+                        transaction.Commit();
+                        Debug.WriteLine($"[SAVE] 트랜잭션 커밋 완료");
+
+                        // 저장 후 원본 상태 업데이트
+                        foreach (var line in changedLines)
+                        {
+                            line.ResetChanges();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[SAVE ERROR] 트랜잭션 실패, 롤백: {ex.Message}");
+                        transaction.Rollback();
+                        throw;
                     }
                 }
                 catch (Exception ex)
                 {
-                    Debug.WriteLine($"[SAVE ERROR] 트랜잭션 실패, 롤백: {ex.Message}");
-                    transaction.Rollback();
-                    throw;
+                    Debug.WriteLine($"[SAVE ERROR] 저장 실패: {ex.Message}\n{ex.StackTrace}");
                 }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"[SAVE ERROR] 저장 실패: {ex.Message}\n{ex.StackTrace}");
             }
         }
 
         private void UpdateAllDisplayOrders(NoteRepository.Transaction transaction)
         {
+            var linesToUpdate = new HashSet<int>(); // 중복 방지
+
             foreach (var line in Lines)
             {
                 if (line.IsHeadingLine && line.CategoryId > 0)
                 {
-                    NoteRepository.UpdateCategoryDisplayOrder(line.CategoryId, line.DisplayOrder, transaction);
+                    if (!linesToUpdate.Contains(line.CategoryId))
+                    {
+                        NoteRepository.UpdateCategoryDisplayOrder(line.CategoryId, line.DisplayOrder, transaction);
+                        linesToUpdate.Add(line.CategoryId);
+                    }
                 }
                 else if (!line.IsHeadingLine && line.TextId > 0)
                 {
-                    NoteRepository.UpdateLineDisplayOrder(line.TextId, line.DisplayOrder, transaction);
+                    if (!linesToUpdate.Contains(line.TextId))
+                    {
+                        NoteRepository.UpdateLineDisplayOrder(line.TextId, line.DisplayOrder, transaction);
+                        linesToUpdate.Add(line.TextId);
+                    }
                 }
             }
         }
 
-        
+
 
         private void SaveLine(MarkdownLineViewModel line, NoteRepository.Transaction transaction)
         {
@@ -1202,27 +1225,21 @@ namespace Notea.Modules.Subject.ViewModels
         /// </summary>
         private int? FindParentForHeading(MarkdownLineViewModel heading)
         {
-
-            Debug.WriteLine($"[SAVE] 부모 찾는다 기다려라");
-
             int headingIndex = Lines.IndexOf(heading);
+            int targetLevel = NoteRepository.GetHeadingLevel(heading.Content);
 
+            // 효율적인 부모 찾기
             for (int i = headingIndex - 1; i >= 0; i--)
             {
-                Debug.WriteLine($"[SAVE] 부모 찾는 중이다 기다려라");
-
                 var line = Lines[i];
-                if (line.IsHeadingLine && line.Level < heading.Level && line.CategoryId > 0)
+                if (line.IsHeadingLine && line.Level < targetLevel && line.CategoryId > 0)
                 {
-                    Debug.WriteLine($"[SAVE] 부모 찾았다 임마 기다려라");
-
+                    Debug.WriteLine($"[SAVE] 부모 카테고리 발견: CategoryId={line.CategoryId}, Level={line.Level}");
                     return line.CategoryId;
                 }
             }
 
-            Debug.WriteLine($"[SAVE] 부모 몬 찾았다 어어?");
-
-
+            Debug.WriteLine($"[SAVE] 최상위 레벨 카테고리 - 부모 없음");
             return null;
         }
 

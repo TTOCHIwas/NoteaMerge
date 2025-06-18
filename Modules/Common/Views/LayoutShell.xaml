@@ -37,12 +37,12 @@
 
         <!-- 열기 버튼: Grid 바깥에서 절대 위치로 배치 -->
         <Button Width="30" Height="30"
-        HorizontalAlignment="Left"
-        VerticalAlignment="Top"
-        Margin="10"
-        Command="{Binding ExpandSidebarCommand}"
-        Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource SidebarCollapsedToVisibilityConverter}}"
-        Style="{StaticResource SideBarButtonStyle}" />
+            HorizontalAlignment="Left"
+            VerticalAlignment="Top"
+            Margin="10"
+            Command="{Binding ExpandSidebarCommand}"
+            Visibility="{Binding IsSidebarCollapsed, Converter={StaticResource SidebarCollapsedToVisibilityConverter}}"
+            Style="{StaticResource SideBarButtonStyle}" />
 
     </Grid>
 </UserControl>
