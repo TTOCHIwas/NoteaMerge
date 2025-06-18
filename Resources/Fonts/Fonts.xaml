@@ -27,6 +27,13 @@
         <Setter Property="Margin" Value="0"/>
     </Style>
 
+    <Style TargetType="TextBox" x:Key="tBtitleStyle" BasedOn="{StaticResource {x:Type TextBox}}">
+        <Setter Property="FontSize" Value="28"/>
+        <Setter Property="FontWeight" Value="Bold"/>
+        <Setter Property="Margin" Value="0"/>
+        <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+
     <Style TargetType="TextBlock" x:Key="timeStyle" BasedOn="{StaticResource {x:Type TextBlock}}">
         <Setter Property="FontSize" Value="28"/>
         <Setter Property="FontWeight" Value="Bold"/>

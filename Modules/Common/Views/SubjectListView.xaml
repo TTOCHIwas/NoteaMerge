@@ -16,8 +16,8 @@
                 <DataTemplate>
                     <StackPanel>
                         <!-- 과목명 - 드래그 가능 -->
-                        <Grid Height="60" Background="Transparent"
-                              Margin="0,10"
+                        <Grid Style="{StaticResource SubjectGridHoverEffecte}"
+                              Margin="0,4"
                               MouseLeftButtonDown="SubjectGrid_MouseLeftButtonDown"
                               MouseMove="SubjectGrid_MouseMove"
                               MouseLeftButtonUp="SubjectGrid_MouseLeftButtonUp">
@@ -25,10 +25,10 @@
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="20" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="{Binding SubjectName}" FontWeight="Bold" FontSize="16" VerticalAlignment="Center"
+                            <TextBlock Grid.Column="0" Text="{Binding SubjectName}" Style="{StaticResource subjectTitleStyle}" VerticalAlignment="Center" Margin="10, 20"
                                        x:Name="SubjectNameText"/>
                             <!-- 과목에 TopicGroups가 있을 때만 펼치기 버튼 표시 -->
-                            <Button Grid.Column="1" Command="{Binding ToggleCommand}" Style="{StaticResource FolderButtonStyle}" VerticalAlignment="Center"
+                            <Button Grid.Column="1" Command="{Binding ToggleCommand}" Style="{StaticResource FolderButtonStyle}" VerticalAlignment="Center" Margin="10, 0"
                                     Visibility="{Binding TopicGroups, Converter={StaticResource HasItemsToVisibilityConverter}}"/>
                         </Grid>
 

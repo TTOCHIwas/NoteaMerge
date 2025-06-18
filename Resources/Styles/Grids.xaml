@@ -12,6 +12,7 @@
     </Style>
 
     <Style x:Key="SubjectGridHoverEffecte" TargetType="Grid">
+        <Setter Property="Cursor" Value="Hand"/>
         <Setter Property="Background" Value="Transparent"/>
         <Setter Property="Effect" Value="{x:Null}"/>
         <Style.Triggers>
