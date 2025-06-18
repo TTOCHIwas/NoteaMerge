@@ -38,7 +38,7 @@
                      Background="Transparent" />
 
             <StackPanel Grid.Column="2" Orientation="Horizontal" Background="Transparent">
-                <Button Content="← 과목 목록" 
+                <Button
                         Style="{StaticResource backButtonStyle}"
                         Command="{Binding NavigateBackCommand}"
                         FontSize="14"

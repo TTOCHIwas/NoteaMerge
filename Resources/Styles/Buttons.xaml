@@ -45,7 +45,6 @@
                     </Border>
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsMouseOver" Value="True">
-                            <Setter Property="Content" Value="← 과목 목록"/>
                             <Trigger.EnterActions>
                                 <BeginStoryboard>
                                     <Storyboard>

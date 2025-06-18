@@ -29,6 +29,55 @@ namespace Notea.Modules.Common.Views
             _isDragging = false;
         }
 
+        private void SubjectGrid_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_isDragging)
+            {
+                var currentTime = DateTime.Now;
+                var timeSinceLastClick = (currentTime - _lastClickTime).TotalMilliseconds;
+
+                if (timeSinceLastClick < DoubleClickInterval)
+                {
+                    // 더블클릭으로 인식
+                    HandleSubjectDoubleClick(sender, e);
+                }
+                else
+                {
+                    // 단일 클릭으로 인식 (필요시 구현)
+                    _lastClickTime = currentTime;
+                }
+            }
+
+            _isDragging = false;
+        }
+
+        private void HandleSubjectDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                var grid = sender as Grid;
+                var subject = grid?.DataContext as SubjectGroupViewModel;
+
+                if (subject != null)
+                {
+                    // MainViewModel의 NavigateToNoteEditor 호출
+                    var mainWindow = Application.Current.MainWindow;
+                    if (mainWindow?.DataContext is MainViewModel mainViewModel)
+                    {
+                        if (mainViewModel.NavigateToNoteEditorCommand.CanExecute(subject))
+                        {
+                            mainViewModel.NavigateToNoteEditorCommand.Execute(subject);
+                            System.Diagnostics.Debug.WriteLine($"[SubjectListView] 과목 '{subject.SubjectName}' 더블클릭 - 필기 화면으로 이동");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SubjectListView] 과목 더블클릭 처리 오류: {ex.Message}");
+            }
+        }
+
         private void SubjectGrid_MouseMove(object sender, MouseEventArgs e)
         {
             if (e.LeftButton == MouseButtonState.Pressed && !_isDragging)

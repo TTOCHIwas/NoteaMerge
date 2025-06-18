@@ -47,7 +47,7 @@ namespace Notea.Modules.Subject.ViewModels
         public NotePageViewModel()
         {
             SubjectTitle = "";
-            NavigateBackCommand = new RelayCommand(NavigateBack);
+            NavigateBackCommand = new Notea.ViewModels.RelayCommand(NavigateBack);
         }
 
         private void NavigateBack()
