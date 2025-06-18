@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
+using System.ComponentModel;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Windows.Input;
@@ -37,6 +38,10 @@ namespace Notea.Modules.Daily.ViewModels
             }
         }
 
+        private bool _isLoadingSubjects = false;
+        private bool _isLoadingFromDatabase = false;
+        private bool _hasLoadedOnce = false; // 초기 로드 완료 플래그
+
         // TODO 리스트
         public ObservableCollection<TodoItem> TodoList { get; set; }
 
@@ -66,19 +71,17 @@ namespace Notea.Modules.Daily.ViewModels
         public ICommand StartAddCommand { get; }
         public ICommand DeleteTodoCommand { get; }
 
-        // 🆕 무한 루프 방지를 위한 강화된 플래그들
-        private bool _isLoadingSubjects = false;
-        private bool _isLoadingFromDatabase = false;
-        private bool _hasLoadedOnce = false; // 초기 로드 완료 플래그
-
-        public DailyBodyViewModel(DateTime appStartDate)
+        public DailyBodyViewModel(DateTime appStartDate, bool skipInitialLoad = false)
         {
+            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 생성자 호출 - skipInitialLoad: {skipInitialLoad}");
+
             SelectedDate = appStartDate;
 
             // 기본 컬렉션으로 시작 (나중에 공유 데이터로 교체됨)
             Subjects = new ObservableCollection<SubjectProgressViewModel>();
             TodoList = new ObservableCollection<TodoItem>();
 
+            // Commands 초기화
             AddTodoCommand = new RelayCommand(AddTodo);
             StartAddCommand = new RelayCommand(() =>
             {
@@ -87,19 +90,267 @@ namespace Notea.Modules.Daily.ViewModels
             });
             DeleteTodoCommand = new RelayCommand<TodoItem>(DeleteTodo);
 
-            // comment, TodoList, DailySubjects 불러오기
-            LoadDailyData(SelectedDate);
+            System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] Commands 초기화 완료");
+
+            // ✅ 초기 로딩 스킵 옵션 강화
+            if (!skipInitialLoad)
+            {
+                System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 초기 데이터 로딩 시작");
+                LoadDailyDataSafe(SelectedDate);
+            }
+            else
+            {
+                System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 초기 데이터 로딩 스킵됨");
+            }
+
+            System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 생성자 완료");
+        }
+
+        public void InitializeDataWhenReady()
+        {
+            if (_hasLoadedOnce)
+            {
+                System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 이미 로드 완료됨 - 스킵");
+                return;
+            }
+
+            System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 지연 데이터 초기화 시작");
+            LoadDailyDataSafe(SelectedDate);
+        }
+
+        public void LoadDailyDataSafe(DateTime date)
+        {
+            System.Diagnostics.Debug.WriteLine($"[DIAGNOSIS] LoadDailyDataSafe 시작 - 날짜: {date.ToShortDateString()}");
+            System.Diagnostics.Debug.WriteLine($"[DIAGNOSIS] _hasLoadedOnce: {_hasLoadedOnce}");
+            System.Diagnostics.Debug.WriteLine($"[DIAGNOSIS] TodoList.Count: {TodoList?.Count ?? -1}");
+            System.Diagnostics.Debug.WriteLine($"[DIAGNOSIS] Comment: '{Comment}'");
+
+            try
+            {
+                if (SelectedDate.Date == date.Date && _hasLoadedOnce && (TodoList?.Count > 0 || !string.IsNullOrEmpty(Comment)))
+                {
+                    System.Diagnostics.Debug.WriteLine("[DIAGNOSIS] 중복 로딩 방지 조건에 걸려서 스킵됨");
+                    return;
+                }
+
+                System.Diagnostics.Debug.WriteLine("[DIAGNOSIS] 중복 로딩 방지 통과 - 로딩 진행");
+
+                // 로딩 플래그 설정
+                _isLoadingFromDatabase = true;
+
+                try
+                {
+                    SelectedDate = date;
+
+                    // ===== Phase 1: 기본적인 데이터 로딩 (그대로 유지) =====
+
+                    // 1. Comment 로딩 (가장 안전)
+                    try
+                    {
+                        Comment = _db.GetCommentByDate(date);
+                        System.Diagnostics.Debug.WriteLine($"[Phase2] Comment 로드 완료: '{Comment}'");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[Phase2] Comment 로드 오류: {ex.Message}");
+                        Comment = string.Empty;
+                    }
+
+                    // 2. TodoList 로딩 (두 번째로 안전)
+                    try
+                    {
+                        // 기존 이벤트 해제
+                        foreach (var todo in TodoList)
+                        {
+                            todo.PropertyChanged -= Todo_PropertyChanged;
+                        }
+
+                        TodoList.Clear();
+                        var todos = _db.GetTodosByDate(date);
+
+                        System.Diagnostics.Debug.WriteLine($"[Phase2] DB에서 {todos.Count}개 Todo 로드됨");
+
+                        foreach (var todo in todos)
+                        {
+                            todo.PropertyChanged += Todo_PropertyChanged;
+                            TodoList.Add(todo);
+                        }
+
+                        System.Diagnostics.Debug.WriteLine($"[Phase2] TodoList에 {TodoList.Count}개 항목 추가됨");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[Phase2] TodoList 로드 오류: {ex.Message}");
+                    }
+
+                    // ===== Phase 2: Subject 데이터 로딩 활성화 =====
+                    try
+                    {
+                        System.Diagnostics.Debug.WriteLine("[Phase2] Subject 데이터 로딩 시작");
+
+                        // 오늘 할 일 과목 리스트 불러오기
+                        LoadDailySubjects(date);
+
+                        System.Diagnostics.Debug.WriteLine("[Phase2] Subject 데이터 로딩 완료");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[Phase2] Subject 로딩 오류: {ex.Message}");
+                        // Subject 로딩 실패해도 나머지 기능은 동작하도록 함
+                    }
+
+                    _hasLoadedOnce = true;
+                    System.Diagnostics.Debug.WriteLine("[Phase2] 전체 데이터 로딩 완료 (Comment + TodoList + Subjects)");
+                }
+                finally
+                {
+                    _isLoadingFromDatabase = false;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Phase2] LoadDailyDataSafe 전체 오류: {ex.Message}");
+                _isLoadingFromDatabase = false;
+            }
+        }
+
+        private void Todo_PropertyChanged(object sender, PropertyChangedEventArgs e)
+        {
+            if (e.PropertyName == nameof(TodoItem.IsCompleted) && sender is TodoItem todo)
+            {
+                try
+                {
+                    _db.UpdateTodoCompletion(todo.Id, todo.IsCompleted);
+                    System.Diagnostics.Debug.WriteLine($"[Phase2] Todo 완료 상태 업데이트: ID={todo.Id}, Completed={todo.IsCompleted}");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Phase2] Todo 업데이트 오류: {ex.Message}");
+                }
+            }
+        }
+
+
+        private void LoadDailySubjectsSafe(DateTime date)
+        {
+            if (_isLoadingSubjects)
+            {
+                System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 이미 과목 로딩 중 - 스킵");
+                return;
+            }
+
+            _isLoadingSubjects = true;
+
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] LoadDailySubjectsSafe 시작");
+
+                // 이벤트 임시 해제
+                if (Subjects != null)
+                {
+                    Subjects.CollectionChanged -= Subjects_CollectionChanged;
+                }
+
+                var processedSubjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                // 데이터베이스에서 안전하게 조회
+                List<(string SubjectName, double Progress, int StudyTimeSeconds, List<TopicGroupData> TopicGroups)> dailySubjectsWithGroups;
+
+                try
+                {
+                    dailySubjectsWithGroups = _db.GetDailySubjectsWithTopicGroups(date);
+                    System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] DB에서 {dailySubjectsWithGroups.Count}개 과목 조회됨");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] DB 조회 오류: {ex.Message}");
+                    dailySubjectsWithGroups = new List<(string, double, int, List<TopicGroupData>)>();
+                }
+
+                // 안전하게 과목 추가
+                foreach (var (subjectName, progress, studyTimeSeconds, topicGroupsData) in dailySubjectsWithGroups)
+                {
+                    try
+                    {
+                        if (processedSubjects.Contains(subjectName))
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 중복 과목 스킵: {subjectName}");
+                            continue;
+                        }
+                        processedSubjects.Add(subjectName);
+
+                        // 안전한 SubjectProgressViewModel 생성
+                        var newSubject = new SubjectProgressViewModel
+                        {
+                            SubjectName = subjectName
+                        };
+
+                        // 캐시된 값으로 안전하게 설정
+                        newSubject.SetCachedStudyTime(studyTimeSeconds);
+
+                        // TopicGroups 안전하게 설정
+                        newSubject._isUpdatingFromDatabase = true;
+                        try
+                        {
+                            foreach (var groupData in topicGroupsData)
+                            {
+                                var topicGroup = new TopicGroupViewModel
+                                {
+                                    GroupTitle = groupData.GroupTitle,
+                                    TotalStudyTimeSeconds = groupData.TotalStudyTimeSeconds,
+                                    IsCompleted = groupData.IsCompleted
+                                };
+                                newSubject.TopicGroups.Add(topicGroup);
+                            }
+                        }
+                        finally
+                        {
+                            newSubject._isUpdatingFromDatabase = false;
+                        }
+
+                        Subjects.Add(newSubject);
+                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 과목 안전하게 추가됨: {subjectName}");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 과목 {subjectName} 추가 오류: {ex.Message}");
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 최종 과목 수: {Subjects?.Count ?? 0}개");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] LoadDailySubjectsSafe 오류: {ex.Message}");
+            }
+            finally
+            {
+                // 이벤트 다시 연결
+                if (Subjects != null)
+                {
+                    Subjects.CollectionChanged += Subjects_CollectionChanged;
+                }
+                _isLoadingSubjects = false;
+                System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] LoadDailySubjectsSafe 완료");
+            }
         }
 
         // 공유 데이터 설정 메소드 - 수정됨
         public void SetSharedSubjects(ObservableCollection<SubjectProgressViewModel> sharedSubjects)
         {
-            // 🆕 로딩 플래그 설정으로 이벤트 차단
+            // ✅ 더 강력한 이벤트 차단
             _isLoadingFromDatabase = true;
+            _isLoadingSubjects = true;
 
             try
             {
-                // 기존 데이터를 새로운 공유 컬렉션으로 이동
+                // 기존 이벤트 완전 해제
+                if (Subjects != null)
+                {
+                    Subjects.CollectionChanged -= Subjects_CollectionChanged;
+                }
+
+                // 기존 데이터 이동
                 if (Subjects != null && Subjects.Count > 0)
                 {
                     var existingData = Subjects.ToList();
@@ -107,15 +358,21 @@ namespace Notea.Modules.Daily.ViewModels
                     {
                         if (!sharedSubjects.Any(s => string.Equals(s.SubjectName, item.SubjectName, StringComparison.OrdinalIgnoreCase)))
                         {
+                            // ✅ 캐시된 값으로 추가 (DB 조회 방지)
+                            item.SetCachedStudyTime(item.TodayStudyTimeSeconds);
                             sharedSubjects.Add(item);
                         }
                     }
                 }
 
+                // 공유 컬렉션 설정
                 Subjects = sharedSubjects;
                 System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 공유 데이터로 전환됨: {Subjects.Count}개 항목");
 
-                // 🆕 공유 데이터로 전환한 후에만 한 번 로드
+                // 이벤트 다시 연결
+                Subjects.CollectionChanged += Subjects_CollectionChanged;
+
+                // ✅ 데이터 로드는 필요한 경우에만
                 if (!_hasLoadedOnce)
                 {
                     LoadDailySubjects(SelectedDate);
@@ -125,6 +382,7 @@ namespace Notea.Modules.Daily.ViewModels
             finally
             {
                 _isLoadingFromDatabase = false;
+                _isLoadingSubjects = false;
             }
         }
 
@@ -215,6 +473,7 @@ namespace Notea.Modules.Daily.ViewModels
 
         public void LoadDailyData(DateTime date)
         {
+<<<<<<< HEAD
             SelectedDate = date; // 선택된 날짜를 업데이트하는 코드 추가
             // 🆕 같은 날짜에 대한 중복 로딩 방지
             if (SelectedDate.Date == date.Date && _hasLoadedOnce)
@@ -222,160 +481,128 @@ namespace Notea.Modules.Daily.ViewModels
                 System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 같은 날짜 데이터 이미 로드됨. 스킵.");
                 return;
             }
+=======
+            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] Phase 1 LoadDailyData 호출 - 날짜: {date.ToShortDateString()}");
+>>>>>>> 68f2c88a1daa55c5f71e35f8ab79e81a70d1e745
 
-            SelectedDate = date;
-
-            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] LoadDailyData 호출됨. 날짜: {date.ToShortDateString()}");
-
-            // Comment 불러오기
-            Comment = _db.GetCommentByDate(date);
-            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] Comment 로드됨: '{Comment}'");
-
-            // TodoList 불러오기
-            var todos = _db.GetTodosByDate(date);
-            TodoList.Clear();
-            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 투두 항목 {todos.Count}개 DB에서 로드됨.");
-
-            foreach (var todo in todos)
-            {
-                //  IsCompleted 변경될 때마다 DB 반영
-                todo.PropertyChanged += (s, e) =>
-                {
-                    if (e.PropertyName == nameof(TodoItem.IsCompleted))
-                    {
-                        _db.UpdateTodoCompletion(todo.Id, todo.IsCompleted);
-                    }
-                };
-
-                TodoList.Add(todo);
-            }
-            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] TodoList에 {TodoList.Count}개 항목 추가됨.");
-
-            // 오늘 할 일 과목 리스트 불러오기 (한 번만)
-            if (!_hasLoadedOnce)
-            {
-                LoadDailySubjects(date);
-                _hasLoadedOnce = true;
-            }
+            // Phase 1에서는 LoadDailyDataSafe로 리다이렉트
+            LoadDailyDataSafe(date);
         }
 
         private void LoadDailySubjects(DateTime date)
         {
             if (_isLoadingSubjects)
             {
-                System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] 이미 로딩 중이므로 스킵됨");
+                System.Diagnostics.Debug.WriteLine("[Phase2] 이미 Subject 로딩 중 - 스킵");
                 return;
             }
 
             _isLoadingSubjects = true;
-            System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] LoadDailySubjects 시작 - 날짜: {date:yyyy-MM-dd}");
 
             try
             {
-                // ⭐ 1단계: DB 중복 데이터 정리 (임시)
-                _db.CleanupDuplicateData(date);
+                System.Diagnostics.Debug.WriteLine($"[Phase2] LoadDailySubjects 시작 - 날짜: {date.ToShortDateString()}");
 
-                // ⭐ 2단계: 모든 이벤트 차단
-                Subjects.CollectionChanged -= Subjects_CollectionChanged;
-
-                // ✅ 3단계: 오늘 총 공부시간 계산 및 설정
-                int todayTotalSeconds = _db.GetTotalStudyTimeSeconds(date);
-                SubjectProgressViewModel.SetTodayTotalStudyTime(todayTotalSeconds);
-                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 오늘 총 공부시간 설정: {todayTotalSeconds}초");
-
-                // 4단계: 데이터 로드
-                var dailySubjectsWithGroups = _db.GetDailySubjectsWithTopicGroups(date);
-                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] DB에서 {dailySubjectsWithGroups.Count}개 DailySubject 로드됨");
-
-                // ⭐ 5단계: 기존 데이터 완전 초기화
-                foreach (var subject in Subjects.ToList())
+                // 이벤트 임시 해제
+                if (Subjects != null)
                 {
-                    subject.TopicGroups.CollectionChanged -= null; // 모든 이벤트 해제
+                    Subjects.CollectionChanged -= Subjects_CollectionChanged;
                 }
-                Subjects.Clear();
 
-                // 6단계: 새 데이터로 채우기 (실제 측정된 시간만)
                 var processedSubjects = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-                foreach (var (subjectName, progress, studyTimeSeconds, topicGroupsData) in dailySubjectsWithGroups)
+                // 데이터베이스에서 안전하게 조회
+                List<(string SubjectName, double Progress, int StudyTimeSeconds, List<TopicGroupData> TopicGroups)> dailySubjectsWithGroups;
+
+                try
                 {
-                    // 중복 체크
-                    if (processedSubjects.Contains(subjectName))
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 중복 과목 스킵: {subjectName}");
-                        continue;
-                    }
-                    processedSubjects.Add(subjectName);
-
-                    // ✅ 새 SubjectProgressViewModel 생성 (실제 측정 시간만)
-                    var newSubject = new SubjectProgressViewModel
-                    {
-                        SubjectName = subjectName,
-                        TodayStudyTimeSeconds = studyTimeSeconds // ✅ 실제 측정된 시간만
-                    };
-
-                    // TopicGroups 생성 (이벤트 없이)
-                    var restoredTopicGroups = new ObservableCollection<TopicGroupViewModel>();
-                    foreach (var groupData in topicGroupsData)
-                    {
-                        var topicGroup = new TopicGroupViewModel
-                        {
-                            GroupTitle = groupData.GroupTitle,
-                            TodayStudyTimeSeconds = groupData.TotalStudyTimeSeconds, // ✅ 실제 측정된 시간
-                            IsCompleted = groupData.IsCompleted,
-                            ParentSubjectName = subjectName,
-                            Topics = new ObservableCollection<Notea.Modules.Subjects.Models.TopicItem>()
-                        };
-
-                        topicGroup.SetParentTodayStudyTime(studyTimeSeconds);
-
-                        // Topics 추가
-                        foreach (var topicData in groupData.Topics)
-                        {
-                            topicGroup.Topics.Add(new Notea.Modules.Subjects.Models.TopicItem
-                            {
-                                Name = topicData.Name,
-                                Progress = topicData.Progress,
-                                StudyTimeSeconds = topicData.StudyTimeSeconds, // ✅ 실제 측정된 시간
-                                IsCompleted = topicData.IsCompleted,
-                                ParentTopicGroupName = groupData.GroupTitle,
-                                ParentSubjectName = subjectName
-                            });
-                        }
-
-                        restoredTopicGroups.Add(topicGroup);
-                    }
-
-                    // ⭐ 완전히 새로운 방식: 직접 할당
-                    newSubject._isUpdatingFromDatabase = true; // 직접 플래그 설정
-                    try
-                    {
-                        foreach (var group in restoredTopicGroups)
-                        {
-                            newSubject.TopicGroups.Add(group);
-                        }
-                    }
-                    finally
-                    {
-                        newSubject._isUpdatingFromDatabase = false;
-                    }
-
-                    Subjects.Add(newSubject);
-                    System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 과목 추가됨: {subjectName} ({topicGroupsData.Count}개 그룹, {studyTimeSeconds}초)");
+                    dailySubjectsWithGroups = _db.GetDailySubjectsWithTopicGroups(date);
+                    System.Diagnostics.Debug.WriteLine($"[Phase2] DB에서 {dailySubjectsWithGroups.Count}개 과목 조회됨");
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[Phase2] DB 조회 오류: {ex.Message}");
+                    dailySubjectsWithGroups = new List<(string, double, int, List<TopicGroupData>)>();
                 }
 
-                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 최종 과목 수: {Subjects.Count}개");
+                // 기존 Subjects 클리어 (공유 데이터가 아닌 경우만)
+                if (Subjects != null)
+                {
+                    Subjects.Clear();
+                }
+
+                // 안전하게 과목 추가
+                foreach (var (subjectName, progress, studyTimeSeconds, topicGroupsData) in dailySubjectsWithGroups)
+                {
+                    try
+                    {
+                        if (processedSubjects.Contains(subjectName))
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[Phase2] 중복 과목 스킵: {subjectName}");
+                            continue;
+                        }
+                        processedSubjects.Add(subjectName);
+
+                        // 안전한 SubjectProgressViewModel 생성
+                        var newSubject = new SubjectProgressViewModel
+                        {
+                            SubjectName = subjectName,
+                            TodayStudyTimeSeconds = studyTimeSeconds
+                        };
+
+                        // 캐시된 값으로 안전하게 설정
+                        newSubject.SetCachedStudyTime(studyTimeSeconds);
+
+                        // TopicGroups 안전하게 설정
+                        newSubject._isUpdatingFromDatabase = true;
+                        try
+                        {
+                            foreach (var groupData in topicGroupsData)
+                            {
+                                var topicGroup = new TopicGroupViewModel
+                                {
+                                    GroupTitle = groupData.GroupTitle,
+                                    TotalStudyTimeSeconds = groupData.TotalStudyTimeSeconds,
+                                    IsCompleted = groupData.IsCompleted,
+                                    CategoryId = groupData.CategoryId // ✅ 이제 오류 없음
+                                };
+                                newSubject.TopicGroups.Add(topicGroup);
+                            }
+                        }
+                        finally
+                        {
+                            newSubject._isUpdatingFromDatabase = false;
+                        }
+
+                        // Subjects 컬렉션에 추가
+                        if (Subjects != null)
+                        {
+                            Subjects.Add(newSubject);
+                            System.Diagnostics.Debug.WriteLine($"[Phase2] 과목 추가됨: {subjectName} (TopicGroups: {newSubject.TopicGroups.Count}개)");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[Phase2] 과목 {subjectName} 추가 오류: {ex.Message}");
+                        // 개별 과목 오류는 무시하고 계속 진행
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[Phase2] 최종 과목 수: {Subjects?.Count ?? 0}개");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] LoadDailySubjects 오류: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[Phase2] LoadDailySubjects 전체 오류: {ex.Message}");
             }
             finally
             {
-                // ⭐ 7단계: 이벤트 재연결
-                Subjects.CollectionChanged += Subjects_CollectionChanged;
+                // 이벤트 다시 연결
+                if (Subjects != null)
+                {
+                    Subjects.CollectionChanged += Subjects_CollectionChanged;
+                }
                 _isLoadingSubjects = false;
-                System.Diagnostics.Debug.WriteLine("[DailyBodyViewModel] LoadDailySubjects 완료");
+                System.Diagnostics.Debug.WriteLine("[Phase2] LoadDailySubjects 완료");
             }
         }
 

@@ -33,8 +33,7 @@
 
                     <TextBlock Grid.Column="0" Margin="20,0,0,0"
                    Text="{Binding SidebarTitle}"
-                   FontSize="32"
-                   FontWeight="Bold"
+                   Style="{StaticResource titleStyle}"
                    VerticalAlignment="Center"
                    Cursor="Hand"
                    MouseLeftButtonDown="TextBlock_MouseLeftButtonDown"/>

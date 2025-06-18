@@ -147,9 +147,9 @@ private UserControl _headerContent;
             // 사이드바 ViewModel 초기화
             SidebarViewModel = new LeftSidebarViewModel("main");
 
-            // ViewModel들 생성 (한 번만)
+            // ViewModel들 생성 (한 번만) - 🚨 skipInitialLoad: true 추가
             _dailyHeaderVM = new DailyHeaderViewModel();
-            _dailyBodyVM = new DailyBodyViewModel(AppStartDate);
+            _dailyBodyVM = new DailyBodyViewModel(AppStartDate, skipInitialLoad: true); // ✅ 초기 로딩 스킵
             _subjectListPageVM = new SubjectListPageViewModel();
             _monthlyPlanVM = new MonthlyPlanViewModel();
             _yearMonthListVM = new YearMonthListViewModel();
@@ -173,7 +173,6 @@ private UserControl _headerContent;
             // Commands 초기화
             ToggleSidebarCommand = new RelayCommand(ToggleSidebar);
             ExpandSidebarCommand = new RelayCommand(() => LeftSidebarWidth = new GridLength(280));
-
             NavigateToSubjectListCommand = new RelayCommand(NavigateToSubjectList);
             NavigateToTodayCommand = new RelayCommand(NavigateToToday);
             NavigateToCalendarCommand = new RelayCommand<DateTime?>(NavigateToCalendar);
@@ -181,14 +180,13 @@ private UserControl _headerContent;
             NavigateToDailyViewForDateCommand = new RelayCommand<DateTime>(NavigateToDailyViewForDate);
             NavigateToCalendarFromYearlyCommand = new RelayCommand<YearMonthViewModel>(NavigateToCalendarFromYearly);
 
-            // ✅ 수정: 초기화 순서 변경
+            // ✅ 수정: 데이터베이스 중복 초기화 제거
             try
             {
-                // 1. 저장된 데이터 복원
                 RestoreDailySubjects();
+                // SetupProgressUpdateSystem(); // 🚨 이 줄도 임시 주석 처리
 
-                // 2. 진행률 업데이트 시스템 설정
-                SetupProgressUpdateSystem();
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 초기화 완료 (데이터 로딩 스킵됨)");
             }
             catch (Exception ex)
             {
@@ -203,6 +201,7 @@ private UserControl _headerContent;
                 IsHeaderVisible = true;
                 HeaderContent = _subjectHeaderView;
                 BodyContent = _subjectBodyView;
+                SidebarViewModel.SetContext("today"); 
                 System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록 페이지로 이동");
             }
             catch (Exception ex)
@@ -215,44 +214,16 @@ private UserControl _headerContent;
         {
             try
             {
-                NavigateToDailyViewForDate(AppStartDate);
+                HeaderContent = _dailyHeaderView;
+                BodyContent = _dailyBodyView;
+                SidebarViewModel.SetContext("main");
+
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 오늘 페이지로 이동");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] 오늘 페이지 이동 오류: {ex.Message}");
             }
-        }
-        private void NavigateToDailyViewForDate(DateTime date)
-        {
-            IsHeaderVisible = true;
-            _dailyHeaderVM.CurrentDate = date.ToString("yyyy.MM.dd"); // 헤더 날짜 변경
-            _dailyBodyVM.LoadDailyData(date); // 바디 데이터 변경
-            HeaderContent = _dailyHeaderView;
-            BodyContent = _dailyBodyView;
-            System.Diagnostics.Debug.WriteLine($"[MainViewModel] {date:yyyy.MM.dd}의 Daily 페이지로 이동");
-        }
-        private void NavigateToCalendar(DateTime? date)
-        {
-            IsHeaderVisible = false;
-            _calendarMonthView.CurrentDate = date ?? DateTime.Now; // 특정 날짜가 있으면 그 날짜로, 없으면 오늘 날짜로 달력 설정
-            BodyContent = _calendarMonthView;
-        }
-
-        private void NavigateToYearly()
-        {
-            IsHeaderVisible = false;
-           // 연도별 보기로 전환 시, 현재 달력의 연도를 반영
-            if (_yearMonthListView.DataContext is YearMonthListViewModel vm)
-           {
-                vm.Year = _calendarMonthView.CurrentDate.Year;
-            }
-            BodyContent = _yearMonthListView;
-        }
-        private void NavigateToCalendarFromYearly(YearMonthViewModel monthVM)
-        {
-         if (monthVM == null) return;
-         var yearVM = _yearMonthListView.DataContext as YearMonthListViewModel;
-         NavigateToCalendar(new DateTime(yearVM.Year, monthVM.Month, 1));
         }
 
 
@@ -564,76 +535,18 @@ private void SetupProgressUpdateSystem()
         {
             try
             {
-                var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                // ✅ DailyBodyViewModel 데이터 로딩 트리거 (지연 로딩)
+                _dailyBodyVM?.InitializeDataWhenReady();
 
-                // ✅ 오늘 총 공부시간 먼저 설정
-                int todayTotalSeconds = dbHelper.GetTotalStudyTimeSeconds(AppStartDate);
-                SubjectProgressViewModel.SetTodayTotalStudyTime(todayTotalSeconds);
-
-                var dailySubjects = dbHelper.GetDailySubjects(AppStartDate);
-
-                foreach (var (subjectName, progress, studyTimeSeconds) in dailySubjects)
-                {
-                    var existingSubject = SharedSubjectProgress.FirstOrDefault(s =>
-                        string.Equals(s.SubjectName, subjectName, StringComparison.OrdinalIgnoreCase));
-
-                    if (existingSubject == null)
-                    {
-                        // ✅ 실제 측정된 시간만으로 생성
-                        SharedSubjectProgress.Add(new SubjectProgressViewModel
-                        {
-                            SubjectName = subjectName,
-                            TodayStudyTimeSeconds = studyTimeSeconds // ✅ 실제 측정된 시간만
-                        });
-                    }
-                    else
-                    {
-                        // 기존 항목 업데이트
-                        existingSubject.TodayStudyTimeSeconds = studyTimeSeconds;
-                    }
-                }
-
-                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 앱 시작 시 {SharedSubjectProgress.Count}개 DailySubject 복원됨 (총 {todayTotalSeconds}초)");
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 일일 과목 복원 완료");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[MainViewModel] DailySubject 복원 오류: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 일일 과목 복원 오류: {ex.Message}");
             }
         }
 
-        // ✅ 과목페이지에서 호출될 메소드 (추후 구현) - 해당 과목의 실시간 시간 증가
-        //public void OnSubjectPageEntered(string subjectName)
-        //{
-        //    var subject = SharedSubjectProgress.FirstOrDefault(s =>
-        //        string.Equals(s.SubjectName, subjectName, StringComparison.OrdinalIgnoreCase));
-
-        //    if (subject != null)
-        //    {
-        //        // ✅ 타이머가 실행중일 때만 시간 증가 (추후 RightSidebarViewModel과 연동)
-        //        System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목페이지 진입: {subjectName}");
-        //        // subject.IncrementRealTimeStudy(); // 매초 호출될 예정
-        //    }
-        //}
-
-        // ✅ 분류그룹에서 활동시 호출될 메소드 (추후 구현) - 해당 분류의 실시간 시간 증가
-        //public void OnTopicGroupActivity(string subjectName, string groupTitle)
-        //{
-        //    var subject = SharedSubjectProgress.FirstOrDefault(s =>
-        //        string.Equals(s.SubjectName, subjectName, StringComparison.OrdinalIgnoreCase));
-
-        //    if (subject != null)
-        //    {
-        //        var topicGroup = subject.TopicGroups.FirstOrDefault(tg =>
-        //            string.Equals(tg.GroupTitle, groupTitle, StringComparison.OrdinalIgnoreCase));
-
-        //        if (topicGroup != null)
-        //        {
-        //            // ✅ 타이머가 실행중일 때만 시간 증가 (추후 RightSidebarViewModel과 연동)
-        //            System.Diagnostics.Debug.WriteLine($"[MainViewModel] 분류그룹 활동: {subjectName} > {groupTitle}");
-        //            // topicGroup.IncrementRealTimeStudy(); // 매초 호출될 예정
-        //        }
-        //    }
-        //}
+        
 
         public void OnDateSelected(DateTime date)
         {

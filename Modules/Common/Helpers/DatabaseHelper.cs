@@ -15,6 +15,10 @@ namespace Notea.Modules.Common.Helpers
         private static readonly object _lockObject = new object();
         private readonly string _dbPath;
 
+        // ✅ 지연 초기화를 위한 플래그들
+        private bool _isInitialized = false;
+        private readonly object _initLock = new object();
+
         // 싱글톤 패턴
         public static DatabaseHelper Instance
         {
@@ -35,68 +39,28 @@ namespace Notea.Modules.Common.Helpers
         private DatabaseHelper()
         {
             _dbPath = Notea.Database.DatabaseInitializer.GetDatabasePath();
-            AddCategoryIdToStudySession();
-            MigrateStudySessionTable();
-            Initialize();
+            System.Diagnostics.Debug.WriteLine("[DatabaseHelper] 싱글톤 인스턴스 생성 완료");
+        }
+
+        private void EnsureDatabaseReady()
+        {
+            // 🚨 무한루프 방지: 완전히 비활성화
+            System.Diagnostics.Debug.WriteLine("[DatabaseHelper] EnsureDatabaseReady 스킵됨");
+            return;
         }
 
         public SQLiteConnection GetConnection()
         {
+            // 🚨 EnsureDatabaseReady 호출 제거하여 순환 호출 방지
+            // EnsureDatabaseReady(); // 이 줄 완전 삭제
             return new SQLiteConnection(Notea.Database.DatabaseInitializer.GetConnectionString());
         }
 
         public void Initialize()
         {
-            lock (_lockObject)
-            {
-                try
-                {
-                    SQLiteConnection.ClearAllPools();
-                    GC.Collect();
-                    GC.WaitForPendingFinalizers();
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[DB] 연결 정리 중 오류: {ex.Message}");
-                }
-
-                int retryCount = 0;
-                int maxRetries = 5;
-
-                while (retryCount < maxRetries)
-                {
-                    try
-                    {
-                        using var conn = GetConnection();
-                        conn.Open();
-
-                        using var pragmaCmd = conn.CreateCommand();
-                        pragmaCmd.CommandText = "PRAGMA foreign_keys=ON;";
-                        pragmaCmd.ExecuteNonQuery();
-
-                        System.Diagnostics.Debug.WriteLine("[DB] 연결 테스트 및 PRAGMA 설정 완료");
-                        break;
-                    }
-                    catch (SQLiteException ex) when (ex.ErrorCode == 5)
-                    {
-                        retryCount++;
-                        System.Diagnostics.Debug.WriteLine($"[DB] 연결 재시도 {retryCount}/{maxRetries}: {ex.Message}");
-
-                        if (retryCount >= maxRetries)
-                        {
-                            System.Diagnostics.Debug.WriteLine("[DB] 연결 실패");
-                            throw new Exception("데이터베이스에 연결할 수 없습니다.");
-                        }
-
-                        System.Threading.Thread.Sleep(100);
-                    }
-                    catch (Exception ex)
-                    {
-                        System.Diagnostics.Debug.WriteLine($"[DB] 초기화 오류: {ex.Message}");
-                        throw;
-                    }
-                }
-            }
+            // 🚨 무한루프 방지: 완전히 비활성화
+            System.Diagnostics.Debug.WriteLine("[DatabaseHelper] Initialize 스킵됨 - DatabaseInitializer에서 이미 처리");
+            return;
         }
 
         private T ExecuteWithRetry<T>(Func<T> operation, int maxRetries = 3)
@@ -367,8 +331,123 @@ namespace Notea.Modules.Common.Helpers
                 }
             });
         }
+        public void RemoveTopicItemTableCompletely()
+        {
+            ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+                        using var transaction = conn.BeginTransaction();
 
-        public int AddTopicItem(int topicGroupId, string content)
+                        try
+                        {
+                            using var cmd = conn.CreateCommand();
+                            cmd.Transaction = transaction;
+
+                            // 1. TopicItem 테이블 존재 확인
+                            cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='TopicItem'";
+                            var tableExists = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+
+                            if (tableExists)
+                            {
+                                // 2. 데이터 수 확인 (로그용)
+                                cmd.CommandText = "SELECT COUNT(*) FROM TopicItem";
+                                var rowCount = Convert.ToInt32(cmd.ExecuteScalar());
+                                System.Diagnostics.Debug.WriteLine($"[DB] TopicItem 테이블 삭제 예정: {rowCount}개 행");
+
+                                // 3. TopicItem 테이블 완전 삭제
+                                cmd.CommandText = "DROP TABLE TopicItem";
+                                cmd.ExecuteNonQuery();
+
+                                System.Diagnostics.Debug.WriteLine("[DB] TopicItem 테이블 완전 삭제 완료");
+                            }
+                            else
+                            {
+                                System.Diagnostics.Debug.WriteLine("[DB] TopicItem 테이블이 이미 존재하지 않음");
+                            }
+
+                            // 4. DailyTopicItem 테이블도 확인 후 삭제 (TopicItem 관련)
+                            cmd.CommandText = "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='DailyTopicItem'";
+                            var dailyTableExists = Convert.ToInt32(cmd.ExecuteScalar()) > 0;
+
+                            if (dailyTableExists)
+                            {
+                                cmd.CommandText = "DROP TABLE IF EXISTS DailyTopicItem";
+                                cmd.ExecuteNonQuery();
+                                System.Diagnostics.Debug.WriteLine("[DB] DailyTopicItem 테이블도 삭제 완료");
+                            }
+
+                            transaction.Commit();
+                            System.Diagnostics.Debug.WriteLine("[DB] TopicItem 관련 테이블 완전 삭제 완료");
+                        }
+                        catch
+                        {
+                            transaction.Rollback();
+                            throw;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB ERROR] TopicItem 테이블 삭제 실패: {ex.Message}");
+                        throw;
+                    }
+                }
+            });
+        }
+
+        // ✅ 4. 기존 스키마 업데이트 메서드에 TopicItem 정리 로직 추가
+        public void CleanupTopicItemReferences()
+        {
+            ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+
+                        // TopicItem 관련 인덱스들도 정리
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = "DROP INDEX IF EXISTS idx_topicitem_category";
+                        cmd.ExecuteNonQuery();
+
+                        System.Diagnostics.Debug.WriteLine("[DB] TopicItem 관련 인덱스 정리 완료");
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB] TopicItem 참조 정리 중 오류: {ex.Message}");
+                    }
+                }
+            });
+        }
+        public void UpdateCategoryStudyTimeSeconds(int categoryId, int seconds)
+        {
+            ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    using var conn = GetConnection();
+                    conn.Open();
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText = @"
+                UPDATE category 
+                SET TotalStudyTimeSeconds = TotalStudyTimeSeconds + @seconds 
+                WHERE categoryId = @categoryId";
+                    cmd.Parameters.AddWithValue("@seconds", seconds);
+                    cmd.Parameters.AddWithValue("@categoryId", categoryId);
+                    cmd.ExecuteNonQuery();
+
+                    System.Diagnostics.Debug.WriteLine($"[Common.DB] Category {categoryId} 학습시간 업데이트: +{seconds}초");
+                }
+            });
+        }
+
+        public int GetCategoryStudyTimeSeconds(int categoryId)
         {
             return ExecuteWithRetry(() =>
             {
@@ -377,10 +456,11 @@ namespace Notea.Modules.Common.Helpers
                     using var conn = GetConnection();
                     conn.Open();
                     using var cmd = conn.CreateCommand();
-                    cmd.CommandText = "INSERT INTO TopicItem (TopicGroupId, Content) VALUES (@groupId, @content); SELECT last_insert_rowid();";
-                    cmd.Parameters.AddWithValue("@groupId", topicGroupId);
-                    cmd.Parameters.AddWithValue("@content", content);
-                    return Convert.ToInt32(cmd.ExecuteScalar());
+                    cmd.CommandText = "SELECT COALESCE(TotalStudyTimeSeconds, 0) FROM category WHERE categoryId = @categoryId";
+                    cmd.Parameters.AddWithValue("@categoryId", categoryId);
+
+                    var result = cmd.ExecuteScalar();
+                    return Convert.ToInt32(result);
                 }
             });
         }
@@ -402,23 +482,6 @@ namespace Notea.Modules.Common.Helpers
         //    });
         //}
 
-        //public void UpdateTopicGroupStudyTimeSeconds(int groupId, int seconds)
-        //{
-        //    ExecuteWithRetry(() =>
-        //    {
-        //        lock (_lockObject)
-        //        {
-        //            using var conn = GetConnection();
-        //            conn.Open();
-        //            using var cmd = conn.CreateCommand();
-        //            cmd.CommandText = "UPDATE TopicGroup SET TotalStudyTimeSeconds = TotalStudyTimeSeconds + @sec WHERE Id = @id";
-        //            cmd.Parameters.AddWithValue("@sec", seconds);
-        //            cmd.Parameters.AddWithValue("@id", groupId);
-        //            cmd.ExecuteNonQuery();
-        //        }
-        //    });
-        //}
-
         // ✅ 수정: LoadSubjectsWithGroups 메소드 (초단위 컬럼 사용)
         public List<SubjectGroupViewModel> LoadSubjectsWithGroups()
         {
@@ -432,27 +495,38 @@ namespace Notea.Modules.Common.Helpers
                     conn.Open();
 
                     var cmd = conn.CreateCommand();
+<<<<<<< HEAD
 
                     // ✅ 수정: 실제 테이블 구조에 맞게 쿼리 변경
                     cmd.CommandText = "SELECT subJectId, Name FROM Subject ORDER BY Name";
+=======
+                    // ✅ 수정: Subject 테이블의 Name 컬럼 사용
+                    cmd.CommandText = "SELECT subjectId, Name FROM Subject ORDER BY Name";
+>>>>>>> 68f2c88a1daa55c5f71e35f8ab79e81a70d1e745
 
                     using var reader = cmd.ExecuteReader();
-
                     while (reader.Read())
                     {
+<<<<<<< HEAD
                         var subjectId = Convert.ToInt32(reader["subJectId"]);  // ✅ 수정
                         var subjectName = reader["Name"].ToString();          // ✅ 수정
+=======
+                        // ✅ 수정: 정확한 컬럼명 사용
+                        var subjectId = Convert.ToInt32(reader["subjectId"]);
+                        var subjectName = reader["Name"].ToString();
+>>>>>>> 68f2c88a1daa55c5f71e35f8ab79e81a70d1e745
 
                         var subjectVM = new SubjectGroupViewModel
                         {
                             SubjectId = subjectId,
                             SubjectName = subjectName,
-                            TotalStudyTimeSeconds = 0, // ✅ 기본값으로 설정
+                            TotalStudyTimeSeconds = 0,
                             TopicGroups = new ObservableCollection<TopicGroupViewModel>()
                         };
 
                         result.Add(subjectVM);
                     }
+                    reader.Close();
 
                     // TopicGroups는 별도 처리 (category 테이블에서 조회)
                     foreach (var subject in result)
@@ -460,6 +534,7 @@ namespace Notea.Modules.Common.Helpers
                         LoadTopicGroupsForSubject(conn, subject);
                     }
 
+                    System.Diagnostics.Debug.WriteLine($"[Common.DB] 과목 로드 완료: {result.Count}개");
                     return result;
                 }
             });
@@ -470,8 +545,38 @@ namespace Notea.Modules.Common.Helpers
         {
             using var groupCmd = conn.CreateCommand();
 
-            // ✅ 수정: category 테이블에서 TopicGroup 정보 조회
-            groupCmd.CommandText = "SELECT categoryId, title FROM category WHERE subJectId = @subjectId ORDER BY title";
+            // ✅ 수정: TotalStudyTimeSeconds 컬럼이 존재하는지 먼저 확인
+            bool hasTotalStudyTimeSeconds = false;
+            try
+            {
+                using var checkCmd = conn.CreateCommand();
+                checkCmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('category') WHERE name='TotalStudyTimeSeconds'";
+                hasTotalStudyTimeSeconds = Convert.ToInt32(checkCmd.ExecuteScalar()) > 0;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DB] TotalStudyTimeSeconds 컬럼 확인 실패: {ex.Message}");
+            }
+
+            // 컬럼 존재 여부에 따라 다른 쿼리 사용
+            if (hasTotalStudyTimeSeconds)
+            {
+                groupCmd.CommandText = @"
+            SELECT categoryId, title, COALESCE(TotalStudyTimeSeconds, 0) as TotalStudyTimeSeconds 
+            FROM category 
+            WHERE subjectId = @subjectId 
+            ORDER BY title";
+            }
+            else
+            {
+                // TotalStudyTimeSeconds 컬럼이 없는 경우 0으로 처리
+                groupCmd.CommandText = @"
+            SELECT categoryId, title, 0 as TotalStudyTimeSeconds 
+            FROM category 
+            WHERE subjectId = @subjectId 
+            ORDER BY title";
+            }
+
             groupCmd.Parameters.AddWithValue("@subjectId", subject.SubjectId);
 
             using var groupReader = groupCmd.ExecuteReader();
@@ -479,12 +584,13 @@ namespace Notea.Modules.Common.Helpers
             {
                 var categoryId = Convert.ToInt32(groupReader["categoryId"]);
                 var categoryTitle = groupReader["title"].ToString();
+                var totalStudyTimeSeconds = Convert.ToInt32(groupReader["TotalStudyTimeSeconds"]);
 
                 var topicGroup = new TopicGroupViewModel
                 {
-                    CategoryId = categoryId,                           // ✅ CategoryId 설정
-                    GroupTitle = categoryTitle,                        // ✅ 수정
-                    TotalStudyTimeSeconds = 0,                        // ✅ 기본값
+                    CategoryId = categoryId,
+                    GroupTitle = categoryTitle,
+                    TotalStudyTimeSeconds = totalStudyTimeSeconds,
                     ParentSubjectName = subject.SubjectName,
                     Topics = new ObservableCollection<Notea.Modules.Subjects.Models.TopicItem>()
                 };
@@ -492,7 +598,83 @@ namespace Notea.Modules.Common.Helpers
                 subject.TopicGroups.Add(topicGroup);
             }
 
-            System.Diagnostics.Debug.WriteLine($"[DB] Subject '{subject.SubjectName}'에 {subject.TopicGroups.Count}개 TopicGroup 로드됨");
+            System.Diagnostics.Debug.WriteLine($"[Common.DB] Subject '{subject.SubjectName}'에 {subject.TopicGroups.Count}개 Category 로드됨");
+        }
+
+        public void ForceSchemaUpdate()
+        {
+            ExecuteWithRetry(() =>
+            {
+                lock (_lockObject)
+                {
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+                        using var transaction = conn.BeginTransaction();
+
+                        try
+                        {
+                            // 1. category 테이블에 TotalStudyTimeSeconds 컬럼 추가
+                            using var checkCmd = conn.CreateCommand();
+                            checkCmd.Transaction = transaction;
+                            checkCmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('category') WHERE name='TotalStudyTimeSeconds'";
+                            var hasColumn = Convert.ToInt32(checkCmd.ExecuteScalar()) > 0;
+
+                            if (!hasColumn)
+                            {
+                                using var alterCmd = conn.CreateCommand();
+                                alterCmd.Transaction = transaction;
+                                alterCmd.CommandText = "ALTER TABLE category ADD COLUMN TotalStudyTimeSeconds INTEGER DEFAULT 0";
+                                alterCmd.ExecuteNonQuery();
+                                System.Diagnostics.Debug.WriteLine("[DB] category.TotalStudyTimeSeconds 컬럼 추가 완료");
+                            }
+
+                            // 2. 기존 category 데이터의 TotalStudyTimeSeconds 초기화
+                            using var updateCmd = conn.CreateCommand();
+                            updateCmd.Transaction = transaction;
+                            updateCmd.CommandText = "UPDATE category SET TotalStudyTimeSeconds = 0 WHERE TotalStudyTimeSeconds IS NULL";
+                            var updatedRows = updateCmd.ExecuteNonQuery();
+                            System.Diagnostics.Debug.WriteLine($"[DB] {updatedRows}개 category의 TotalStudyTimeSeconds 초기화");
+
+                            // 3. TopicItem 테이블 구조 확인 및 업데이트
+                            checkCmd.CommandText = "SELECT COUNT(*) FROM pragma_table_info('TopicItem') WHERE name='categoryId'";
+                            var hasTopicItemCategoryId = Convert.ToInt32(checkCmd.ExecuteScalar()) > 0;
+
+                            if (!hasTopicItemCategoryId)
+                            {
+                                // TopicItem 테이블에 categoryId 컬럼이 없으면 추가
+                                using var alterCmd = conn.CreateCommand();
+                                alterCmd.Transaction = transaction;
+                                alterCmd.CommandText = "ALTER TABLE TopicItem ADD COLUMN categoryId INTEGER";
+                                alterCmd.ExecuteNonQuery();
+                                System.Diagnostics.Debug.WriteLine("[DB] TopicItem.categoryId 컬럼 추가 완료");
+                            }
+
+                            transaction.Commit();
+                            System.Diagnostics.Debug.WriteLine("[DB] 스키마 강제 업데이트 완료");
+                        }
+                        catch
+                        {
+                            transaction.Rollback();
+                            throw;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[DB ERROR] 스키마 강제 업데이트 실패: {ex.Message}");
+                        throw;
+                    }
+                }
+            });
+        }
+
+        public void EnsureSchemaComplete()
+        {
+            // 🚨 무한루프 방지: 완전히 비활성화
+            // DatabaseInitializer에서 이미 모든 스키마 초기화가 완료되므로 여기서는 아무것도 하지 않음
+            System.Diagnostics.Debug.WriteLine("[DatabaseHelper] EnsureSchemaComplete 스킵됨 - DatabaseInitializer에서 이미 처리");
+            return;
         }
 
         private void LoadTopicItemsForGroup(SQLiteConnection conn, TopicGroupViewModel topicGroup, int groupId)
@@ -865,66 +1047,45 @@ namespace Notea.Modules.Common.Helpers
                             }
                         }
 
-                        // 각 과목에 대해 TopicGroups 조회
+                        // 각 과목에 대해 TopicGroups 조회 (CategoryId 포함)
                         foreach (var (subjectName, progress, studyTimeSeconds) in subjects)
                         {
                             var topicGroups = new List<TopicGroupData>();
 
-                            // TopicGroups 조회
                             using var groupCmd = conn.CreateCommand();
-                            groupCmd.CommandText = "SELECT GroupTitle, TotalStudyTimeSeconds, IsCompleted FROM DailyTopicGroup WHERE Date = @date AND SubjectName = @subjectName";
+                            groupCmd.CommandText = @"
+                        SELECT dtg.GroupTitle, dtg.TotalStudyTimeSeconds, dtg.IsCompleted,
+                               COALESCE(c.categoryId, 0) as CategoryId
+                        FROM DailyTopicGroup dtg
+                        LEFT JOIN category c ON c.title = dtg.GroupTitle 
+                                             AND c.subJectId = (SELECT subJectId FROM subject WHERE title = @subjectName)
+                        WHERE dtg.Date = @date AND dtg.SubjectName = @subjectName";
+
                             groupCmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
                             groupCmd.Parameters.AddWithValue("@subjectName", subjectName);
 
-                            var groups = new List<(string, int, bool)>();
-                            using (var groupReader = groupCmd.ExecuteReader())
+                            using var groupReader = groupCmd.ExecuteReader();
+                            while (groupReader.Read())
                             {
-                                while (groupReader.Read())
-                                {
-                                    groups.Add((
-                                        groupReader["GroupTitle"].ToString(),
-                                        Convert.ToInt32(groupReader["TotalStudyTimeSeconds"]),
-                                        Convert.ToInt32(groupReader["IsCompleted"]) == 1
-                                    ));
-                                }
-                            }
-
-                            // 각 TopicGroup의 Topics 조회
-                            foreach (var (groupTitle, totalStudyTimeSeconds, isCompleted) in groups)
-                            {
-                                var topics = new List<TopicItemData>();
-
-                                using var topicCmd = conn.CreateCommand();
-                                topicCmd.CommandText = "SELECT TopicName, Progress, StudyTimeSeconds, IsCompleted FROM DailyTopicItem WHERE Date = @date AND SubjectName = @subjectName AND GroupTitle = @groupTitle";
-                                topicCmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
-                                topicCmd.Parameters.AddWithValue("@subjectName", subjectName);
-                                topicCmd.Parameters.AddWithValue("@groupTitle", groupTitle);
-
-                                using var topicReader = topicCmd.ExecuteReader();
-                                while (topicReader.Read())
-                                {
-                                    topics.Add(new TopicItemData
-                                    {
-                                        Name = topicReader["TopicName"].ToString(),
-                                        Progress = Convert.ToDouble(topicReader["Progress"]),
-                                        StudyTimeSeconds = Convert.ToInt32(topicReader["StudyTimeSeconds"]),
-                                        IsCompleted = Convert.ToInt32(topicReader["IsCompleted"]) == 1
-                                    });
-                                }
+                                var groupTitle = groupReader["GroupTitle"].ToString();
+                                var totalStudyTimeSeconds = Convert.ToInt32(groupReader["TotalStudyTimeSeconds"]);
+                                var isCompleted = Convert.ToInt32(groupReader["IsCompleted"]) == 1;
+                                var categoryId = Convert.ToInt32(groupReader["CategoryId"]);
 
                                 topicGroups.Add(new TopicGroupData
                                 {
                                     GroupTitle = groupTitle,
                                     TotalStudyTimeSeconds = totalStudyTimeSeconds,
                                     IsCompleted = isCompleted,
-                                    Topics = topics
+                                    CategoryId = categoryId, // ✅ CategoryId 설정
+                                    Topics = new List<TopicItemData>()
                                 });
                             }
 
                             result.Add((subjectName, progress, studyTimeSeconds, topicGroups));
                         }
 
-                        System.Diagnostics.Debug.WriteLine($"[DB] {result.Count}개 DailySubject (TopicGroups 포함) 로드됨");
+                        System.Diagnostics.Debug.WriteLine($"[DB] {result.Count}개 DailySubject 로드됨 (CategoryId 포함)");
                     }
                     catch (Exception ex)
                     {
@@ -2127,16 +2288,25 @@ namespace Notea.Modules.Common.Helpers
     public class TopicGroupData
     {
         public string GroupTitle { get; set; } = string.Empty;
-        public int TotalStudyTimeSeconds { get; set; } // ✅ 초단위
+        public int TotalStudyTimeSeconds { get; set; }
         public bool IsCompleted { get; set; }
+        public int CategoryId { get; set; } = 0; // ✅ 이 줄 추가
         public List<TopicItemData> Topics { get; set; } = new();
     }
 
     public class TopicItemData
     {
+        // ✅ 기본 구조는 유지하지만 실제로는 사용되지 않음
         public string Name { get; set; } = string.Empty;
-        public double Progress { get; set; }
-        public int StudyTimeSeconds { get; set; } // ✅ 초단위
-        public bool IsCompleted { get; set; }
+        public double Progress { get; set; } = 0.0;
+        public int StudyTimeSeconds { get; set; } = 0;
+        public bool IsCompleted { get; set; } = false;
+
+        // ✅ 생성자에서 빈 상태로 초기화
+        public TopicItemData()
+        {
+            // TopicItem 기능이 제거되었음을 표시
+            System.Diagnostics.Debug.WriteLine("[Warning] TopicItemData는 더 이상 사용되지 않습니다.");
+        }
     }
 }

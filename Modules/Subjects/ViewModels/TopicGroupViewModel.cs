@@ -9,6 +9,9 @@ namespace Notea.Modules.Subjects.ViewModels
 {
     public class TopicGroupViewModel : ViewModelBase
     {
+        private int _cachedTodayStudyTimeSeconds = -1;
+        private DateTime _lastCacheDate = DateTime.MinValue;
+
         public string GroupTitle { get; set; } = string.Empty;
         public string ParentSubjectName { get; set; } = string.Empty;
         public ObservableCollection<TopicItem> Topics { get; set; } = new();
@@ -43,7 +46,6 @@ namespace Notea.Modules.Subjects.ViewModels
             set => SetProperty(ref _realTimeProgressPercentage, value);
         }
 
-        // 실시간 학습시간 표시 속성
         private string _realTimeStudyTimeDisplay = "00:00:00";
         public string RealTimeStudyTimeDisplay
         {
@@ -53,7 +55,6 @@ namespace Notea.Modules.Subjects.ViewModels
 
         public string ProgressRatioPercentText => $"{ProgressRatio:P1}";
 
-        // ✅ 수정: 카테고리 ID 속성 완전 정의
         private int _categoryId = 0;
         public int CategoryId
         {
@@ -66,6 +67,7 @@ namespace Notea.Modules.Subjects.ViewModels
         public TopicGroupViewModel()
         {
             ToggleCommand = new RelayCommand(() => IsExpanded = !IsExpanded);
+            Topics.Clear();
         }
 
         // ✅ 분류별 오늘 학습시간 - StudySession에서 실시간 조회
@@ -76,16 +78,25 @@ namespace Notea.Modules.Subjects.ViewModels
                 if (string.IsNullOrEmpty(ParentSubjectName) || string.IsNullOrEmpty(GroupTitle))
                     return 0;
 
+                // 캐시 유효성 검사
+                if (_lastCacheDate.Date == DateTime.Today.Date && _cachedTodayStudyTimeSeconds >= 0)
+                {
+                    return _cachedTodayStudyTimeSeconds;
+                }
+
                 try
                 {
                     var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
-
-                    // ✅ StudySession에서 직접 실제 측정 시간 조회 (CategoryId 기반)
                     var actualTime = CategoryId > 0
                         ? dbHelper.GetCategoryDailyTimeSeconds(DateTime.Today, CategoryId)
                         : dbHelper.GetTopicGroupDailyTimeSecondsByName(DateTime.Today, ParentSubjectName, GroupTitle);
 
-                    System.Diagnostics.Debug.WriteLine($"[TopicGroup] {ParentSubjectName}>{GroupTitle} 실제 측정 시간: {actualTime}초");
+                    // 캐시 업데이트
+                    _cachedTodayStudyTimeSeconds = actualTime;
+                    _lastCacheDate = DateTime.Today;
+
+                    // 로그는 캐시 갱신 시에만
+                    System.Diagnostics.Debug.WriteLine($"[TopicGroup] {ParentSubjectName}>{GroupTitle} 시간 캐시 갱신: {actualTime}초");
                     return actualTime;
                 }
                 catch (Exception ex)
@@ -96,25 +107,25 @@ namespace Notea.Modules.Subjects.ViewModels
             }
             set
             {
-                // DailyTopicGroup 업데이트 (UI 표시용)
-                try
-                {
-                    var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
-                    dbHelper.UpdateDailyTopicGroupCompletion(DateTime.Today, ParentSubjectName, GroupTitle, IsCompleted);
-
-                    // 모든 관련 속성들 새로고침
-                    OnPropertyChanged(nameof(TodayStudyTimeSeconds));
-                    OnPropertyChanged(nameof(ProgressRatio));
-                    OnPropertyChanged(nameof(StudyTimeTooltip));
-                    OnPropertyChanged(nameof(StudyTimeText));
-                    OnPropertyChanged(nameof(TotalStudyTime));
-                    OnPropertyChanged(nameof(TotalStudyTimeSeconds));
-                }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[TopicGroup] {ParentSubjectName}>{GroupTitle} 저장 오류: {ex.Message}");
-                }
+                // 캐시 업데이트 (DB 저장은 필요시에만)
+                _cachedTodayStudyTimeSeconds = value;
+                _lastCacheDate = DateTime.Today;
+                OnPropertyChanged(nameof(TodayStudyTimeSeconds));
             }
+        }
+
+        public void RefreshStudyTimeCache()
+        {
+            _cachedTodayStudyTimeSeconds = -1;
+            _lastCacheDate = DateTime.MinValue;
+            OnPropertyChanged(nameof(TodayStudyTimeSeconds));
+        }
+
+        public void SetCachedStudyTime(int seconds)
+        {
+            _cachedTodayStudyTimeSeconds = seconds;
+            _lastCacheDate = DateTime.Today;
+            OnPropertyChanged(nameof(TodayStudyTimeSeconds));
         }
 
         // ✅ 호환성을 위한 프로퍼티
@@ -127,8 +138,30 @@ namespace Notea.Modules.Subjects.ViewModels
         // ✅ 메인 프로퍼티: 초단위 분류별 학습시간
         public int TotalStudyTimeSeconds
         {
-            get => TodayStudyTimeSeconds;
-            set => TodayStudyTimeSeconds = value;
+            get
+            {
+                if (CategoryId > 0)
+                {
+                    try
+                    {
+                        var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                        return dbHelper.GetCategoryStudyTimeSeconds(CategoryId);
+                    }
+                    catch (Exception ex)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[TopicGroup] 학습시간 조회 오류: {ex.Message}");
+                        return 0;
+                    }
+                }
+                return 0;
+            }
+            set
+            {
+                // setter는 UI 바인딩용으로만 사용, 실제 데이터는 데이터베이스에서 관리
+                OnPropertyChanged(nameof(TotalStudyTimeSeconds));
+                OnPropertyChanged(nameof(StudyTimeText));
+                OnPropertyChanged(nameof(ProgressRatio));
+            }
         }
 
         public void SetParentTodayStudyTime(int parentTodayTimeSeconds)
@@ -218,7 +251,8 @@ namespace Notea.Modules.Subjects.ViewModels
                 if (CategoryId > 0)
                 {
                     var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
-                    // CategoryId를 활용한 StudySession 저장
+
+                    // 1. StudySession에 기록 (기존과 동일)
                     dbHelper.SaveStudySession(
                         DateTime.Now.AddSeconds(-seconds),
                         DateTime.Now,
@@ -228,6 +262,10 @@ namespace Notea.Modules.Subjects.ViewModels
                         CategoryId
                     );
 
+                    // 2. ✅ 새로 추가: category 테이블의 TotalStudyTimeSeconds 업데이트
+                    dbHelper.UpdateCategoryStudyTimeSeconds(CategoryId, seconds);
+
+                    // 3. 실시간 표시 업데이트
                     UpdateRealTimeDisplay();
                     System.Diagnostics.Debug.WriteLine($"[TopicGroup] {GroupTitle} 학습시간 추가: {seconds}초 (CategoryId: {CategoryId})");
                 }
@@ -238,7 +276,7 @@ namespace Notea.Modules.Subjects.ViewModels
             }
         }
 
-        
+
 
         public void IncrementRealTimeStudy()
         {
