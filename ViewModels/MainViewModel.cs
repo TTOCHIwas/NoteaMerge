@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -175,7 +176,7 @@ private UserControl _headerContent;
             ExpandSidebarCommand = new RelayCommand(() => LeftSidebarWidth = new GridLength(280));
             NavigateToSubjectListCommand = new RelayCommand(NavigateToSubjectList);
             NavigateToTodayCommand = new RelayCommand(NavigateToToday);
-            NavigateToCalendarCommand = new RelayCommand<DateTime?>(NavigateToCalendar);
+            NavigateToCalendarCommand = new RelayCommand<string>(NavigateToCalendar);
             NavigateToYearlyCommand = new RelayCommand(NavigateToYearly);
             NavigateToDailyViewForDateCommand = new RelayCommand<DateTime>(NavigateToDailyViewForDate);
             NavigateToCalendarFromYearlyCommand = new RelayCommand<YearMonthViewModel>(NavigateToCalendarFromYearly);
@@ -225,10 +226,163 @@ private UserControl _headerContent;
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] 오늘 페이지 이동 오류: {ex.Message}");
             }
         }
+        /// <summary>
+        /// Daily 화면의 날짜 클릭 → Calendar 화면으로 이동
+        /// 파라미터: DailyHeaderViewModel.CurrentDate (string "yyyy.MM.dd")
+        /// </summary>
+        private void NavigateToCalendar(string dateString)
+        {
+            try
+            {
+                DateTime? selectedDate = null;
 
+                // "yyyy.MM.dd" 형식 파싱
+                if (!string.IsNullOrEmpty(dateString) &&
+                    DateTime.TryParseExact(dateString, "yyyy.MM.dd", null, DateTimeStyles.None, out DateTime parsed))
+                {
+                    selectedDate = parsed;
+                }
 
-// ✅ 수정: 진행률 업데이트 시스템 설정
-private void SetupProgressUpdateSystem()
+                System.Diagnostics.Debug.WriteLine($"[Navigation] 캘린더로 이동 - 날짜: {selectedDate?.ToShortDateString() ?? "파싱 실패"}");
+
+                IsHeaderVisible = false;
+                BodyContent = _calendarMonthView;
+
+                if (selectedDate.HasValue)
+                {
+                    _calendarMonthView.CurrentDate = selectedDate.Value;
+                }
+                else
+                {
+                    // 파싱 실패 시 현재 날짜로 설정
+                    _calendarMonthView.CurrentDate = DateTime.Now;
+                }
+
+                SidebarViewModel.SetContext("calendar");
+                System.Diagnostics.Debug.WriteLine("[Navigation] 캘린더 이동 완료");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Navigation] 캘린더 이동 오류: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Calendar 화면의 년/월 텍스트 클릭 → Yearly 화면으로 이동
+        /// 파라미터: 없음
+        /// </summary>
+        private void NavigateToYearly()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("[Navigation] 연간 뷰로 이동");
+
+                // 헤더 숨김
+                IsHeaderVisible = false;
+
+                // 연간 월 목록 뷰로 콘텐츠 변경
+                BodyContent = _yearMonthListView;
+
+                // 연간 데이터 새로고침
+                if (_yearMonthListVM != null)
+                {
+                    _yearMonthListVM.RefreshYearData(); // 이 메서드 구현 필요
+                }
+
+                // 사이드바 컨텍스트 변경
+                SidebarViewModel.SetContext("yearly");
+
+                System.Diagnostics.Debug.WriteLine("[Navigation] 연간 뷰 이동 완료");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Navigation] 연간 뷰 이동 오류: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Calendar 화면의 날짜 더블클릭 → Daily 화면으로 이동
+        /// 파라미터: CalendarDay.Date (DateTime)
+        /// </summary>
+        private void NavigateToDailyViewForDate(DateTime selectedDate)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[Navigation] Daily 뷰로 이동 - 날짜: {selectedDate.ToShortDateString()}");
+
+                // 헤더 표시
+                IsHeaderVisible = true;
+
+                // Daily 뷰로 콘텐츠 변경
+                HeaderContent = _dailyHeaderView;
+                BodyContent = _dailyBodyView;
+
+                // 선택된 날짜의 데이터 로드
+                _dailyBodyVM.LoadDailyData(selectedDate);
+
+                // DailyHeaderViewModel에 선택된 날짜 설정
+                if (_dailyHeaderVM != null)
+                {
+                    _dailyHeaderVM.SetSelectedDate(selectedDate); // 이 메서드 구현 필요
+                }
+
+                // 사이드바 컨텍스트 변경
+                SidebarViewModel.SetContext("main");
+
+                System.Diagnostics.Debug.WriteLine($"[Navigation] Daily 뷰 이동 완료 - {selectedDate.ToShortDateString()}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Navigation] Daily 뷰 이동 오류: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Yearly 화면의 월 항목 클릭 → Calendar 화면으로 이동
+        /// 파라미터: YearMonthViewModel 객체
+        /// </summary>
+        private void NavigateToCalendarFromYearly(YearMonthViewModel selectedMonth)
+        {
+            try
+            {
+                if (selectedMonth == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Navigation] 선택된 월이 null입니다.");
+                    return;
+                }
+
+                // Year 프로퍼티 필요 (YearMonthViewModel에 추가 필요)
+                int year = selectedMonth.Year > 0 ? selectedMonth.Year : DateTime.Now.Year;
+
+                System.Diagnostics.Debug.WriteLine($"[Navigation] 연간 뷰에서 캘린더로 이동 - {year}년 {selectedMonth.Month}월");
+
+                // 헤더 숨김
+                IsHeaderVisible = false;
+
+                // 캘린더 뷰로 콘텐츠 변경
+                BodyContent = _calendarMonthView;
+
+                // 선택된 월로 캘린더 설정
+                DateTime targetDate = new DateTime(year, selectedMonth.Month, 1);
+                _calendarMonthView.CurrentDate = targetDate;
+
+                // 캘린더 데이터 새로고침
+                _calendarMonthView.LoadEvents();
+                _calendarMonthView.LoadMonthComment();
+
+                // 사이드바 컨텍스트 변경
+                SidebarViewModel.SetContext("calendar");
+
+                System.Diagnostics.Debug.WriteLine($"[Navigation] 캘린더 이동 완료 - {year}년 {selectedMonth.Month}월");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Navigation] 연간→캘린더 이동 오류: {ex.Message}");
+            }
+        }
+
+        // ✅ 수정: 진행률 업데이트 시스템 설정
+        private void SetupProgressUpdateSystem()
         {
             try
             {

@@ -7,6 +7,7 @@ namespace Notea.Modules.Monthly.ViewModels
     {
         private int _month;
         private string _comment;
+        private int _year;
 
         public int Month
         {
@@ -16,6 +17,15 @@ namespace Notea.Modules.Monthly.ViewModels
                 _month = value;
                 OnPropertyChanged();
                 OnPropertyChanged(nameof(MonthText));
+            }
+        }
+        public int Year
+        {
+            get => _year;
+            set
+            {
+                _year = value;
+                OnPropertyChanged();
             }
         }
 
@@ -29,6 +39,10 @@ namespace Notea.Modules.Monthly.ViewModels
                 _comment = value;
                 OnPropertyChanged();
             }
+        }
+        public YearMonthViewModel()
+        {
+            Year = DateTime.Now.Year; // 기본값 설정
         }
 
         public event PropertyChangedEventHandler PropertyChanged;

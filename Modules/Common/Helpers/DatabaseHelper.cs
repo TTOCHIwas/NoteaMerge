@@ -495,26 +495,17 @@ namespace Notea.Modules.Common.Helpers
                     conn.Open();
 
                     var cmd = conn.CreateCommand();
-<<<<<<< HEAD
 
-                    // ✅ 수정: 실제 테이블 구조에 맞게 쿼리 변경
-                    cmd.CommandText = "SELECT subJectId, Name FROM Subject ORDER BY Name";
-=======
                     // ✅ 수정: Subject 테이블의 Name 컬럼 사용
                     cmd.CommandText = "SELECT subjectId, Name FROM Subject ORDER BY Name";
->>>>>>> 68f2c88a1daa55c5f71e35f8ab79e81a70d1e745
+
 
                     using var reader = cmd.ExecuteReader();
                     while (reader.Read())
                     {
-<<<<<<< HEAD
-                        var subjectId = Convert.ToInt32(reader["subJectId"]);  // ✅ 수정
-                        var subjectName = reader["Name"].ToString();          // ✅ 수정
-=======
                         // ✅ 수정: 정확한 컬럼명 사용
                         var subjectId = Convert.ToInt32(reader["subjectId"]);
                         var subjectName = reader["Name"].ToString();
->>>>>>> 68f2c88a1daa55c5f71e35f8ab79e81a70d1e745
 
                         var subjectVM = new SubjectGroupViewModel
                         {

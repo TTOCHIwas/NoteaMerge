@@ -20,6 +20,11 @@ namespace Notea.Modules.Daily.ViewModels
                 }
             }
         }
+        public void SetSelectedDate(DateTime date)
+        {
+            CurrentDate = date.ToString("yyyy.MM.dd");
+            System.Diagnostics.Debug.WriteLine($"[DailyHeaderViewModel] 날짜 설정: {date.ToShortDateString()}");
+        }
 
         public DailyHeaderViewModel()
         {

@@ -473,7 +473,7 @@ namespace Notea.Modules.Daily.ViewModels
 
         public void LoadDailyData(DateTime date)
         {
-<<<<<<< HEAD
+
             SelectedDate = date; // 선택된 날짜를 업데이트하는 코드 추가
             // 🆕 같은 날짜에 대한 중복 로딩 방지
             if (SelectedDate.Date == date.Date && _hasLoadedOnce)
@@ -481,9 +481,8 @@ namespace Notea.Modules.Daily.ViewModels
                 System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] 같은 날짜 데이터 이미 로드됨. 스킵.");
                 return;
             }
-=======
+
             System.Diagnostics.Debug.WriteLine($"[DailyBodyViewModel] Phase 1 LoadDailyData 호출 - 날짜: {date.ToShortDateString()}");
->>>>>>> 68f2c88a1daa55c5f71e35f8ab79e81a70d1e745
 
             // Phase 1에서는 LoadDailyDataSafe로 리다이렉트
             LoadDailyDataSafe(date);

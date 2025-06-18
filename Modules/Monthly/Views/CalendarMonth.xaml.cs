@@ -109,9 +109,9 @@ namespace Notea.Modules.Monthly.Views
         public CalendarMonth()
         {
             InitializeComponent();
-            DaysInCurrentMonth = new ObservableCollection<CalendarDay>();
-            InitializeDate();
-            InitializeDayLabels();
+            //DaysInCurrentMonth = new ObservableCollection<CalendarDay>();
+            //InitializeDate();
+            //InitializeDayLabels();
         }
 
         
@@ -481,7 +481,7 @@ namespace Notea.Modules.Monthly.Views
             }
         }
 
-        private void LoadMonthComment()
+        public void LoadMonthComment()
         {
             try
             {
