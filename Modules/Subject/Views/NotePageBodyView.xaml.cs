@@ -97,7 +97,6 @@ namespace Notea.Modules.Subject.Views
             {
                 if (vm?.EditorViewModel?.SubjectId > 0)
                 {
-                    // ✅ 올바른 테이블명과 컬럼명 사용
                     return Notea.Modules.Subject.Models.NoteRepository.GetSubjectNameById(vm.EditorViewModel.SubjectId);
                 }
                 return null;

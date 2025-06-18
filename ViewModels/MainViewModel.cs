@@ -229,31 +229,60 @@ namespace Notea.ViewModels
                 string subjectName = null;
                 int subjectId = 0;
 
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] NavigateToNoteEditor 호출됨 - Parameter 타입: {parameter?.GetType().Name}");
+
                 // 파라미터에서 과목 정보 추출
                 if (parameter is SubjectGroupViewModel subjectGroup)
                 {
                     subjectName = subjectGroup.SubjectName;
                     subjectId = subjectGroup.SubjectId;
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] SubjectGroupViewModel - Name: '{subjectName}', ID: {subjectId}");
                 }
                 else if (parameter is SubjectProgressViewModel subjectProgress)
                 {
                     subjectName = subjectProgress.SubjectName;
                     subjectId = GetSubjectIdByName(subjectName);
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] SubjectProgressViewModel - Name: '{subjectName}', ID: {subjectId}");
                 }
                 else if (parameter is string name)
                 {
                     subjectName = name;
                     subjectId = GetSubjectIdByName(subjectName);
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] String parameter - Name: '{subjectName}', ID: {subjectId}");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] 알 수 없는 parameter 타입: {parameter}");
                 }
 
-                if (string.IsNullOrEmpty(subjectName) || subjectId <= 0)
+                // ✅ 유효성 검사 강화
+                if (string.IsNullOrEmpty(subjectName))
                 {
-                    System.Diagnostics.Debug.WriteLine("[MainViewModel] 유효하지 않은 과목 정보");
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] ERROR: subjectName이 null 또는 빈 문자열");
                     return;
+                }
+
+                if (subjectId <= 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] ERROR: 유효하지 않은 subjectId: {subjectId}");
+
+                    // 과목명으로 다시 조회 시도
+                    subjectId = GetSubjectIdByName(subjectName);
+                    if (subjectId <= 0)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MainViewModel] ERROR: 과목명 '{subjectName}'으로도 subjectId를 찾을 수 없음");
+                        return;
+                    }
+                    else
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목명으로 subjectId 복구 성공: {subjectId}");
+                    }
                 }
 
                 _currentSelectedSubject = subjectName;
                 _currentSelectedSubjectId = subjectId;
+
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 최종 확인 - SubjectName: '{_currentSelectedSubject}', SubjectId: {_currentSelectedSubjectId}");
 
                 // 필기 화면용 ViewModel 생성
                 _notePageVM = new Notea.Modules.Subject.ViewModels.NotePageViewModel();
@@ -262,22 +291,27 @@ namespace Notea.ViewModels
                 _notePageHeaderView = new Notea.Modules.Subject.Views.NotePageHeaderView { DataContext = _notePageVM };
                 _notePageBodyView = new Notea.Modules.Subject.Views.NotePageBodyView { DataContext = _notePageVM };
 
-                // 과목 정보 설정
-                _notePageVM.SetSubject(subjectId, subjectName);
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] NotePageViewModel 및 Views 생성 완료");
 
-                // 필기 화면으로 전환 - Header와 Body 분리
+                // ✅ 과목 정보 설정 (가장 중요한 부분)
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] SetSubject 호출 시작 - SubjectId: {subjectId}, SubjectName: '{subjectName}'");
+                _notePageVM.SetSubject(subjectId, subjectName);
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] SetSubject 호출 완료");
+
+                // 필기 화면으로 전환
                 HeaderContent = _notePageHeaderView;
                 BodyContent = _notePageBodyView;
 
-                // 왼쪽 사이드바를 "오늘 할 일" 모드로 변경
+                // 왼쪽 사이드바 설정
                 SidebarViewModel.SetContext("today");
                 SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
 
-                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목 '{subjectName}' 필기 화면으로 이동 (Header/Body 분리)");
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목 '{subjectName}' 필기 화면으로 이동 완료");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] 필기 화면 이동 오류: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 스택 트레이스: {ex.StackTrace}");
             }
         }
 
@@ -316,11 +350,49 @@ namespace Notea.ViewModels
         {
             try
             {
-                return Notea.Modules.Subject.Models.NoteRepository.GetSubjectIdByName(subjectName);
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] GetSubjectIdByName 호출 - subjectName: '{subjectName}'");
+
+                if (string.IsNullOrEmpty(subjectName))
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] GetSubjectIdByName - subjectName이 null 또는 빈 문자열");
+                    return 0;
+                }
+
+                int result = Notea.Modules.Subject.Models.NoteRepository.GetSubjectIdByName(subjectName);
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] GetSubjectIdByName 결과 - subjectName: '{subjectName}' → subjectId: {result}");
+
+                if (result == 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] 경고: 과목 '{subjectName}'에 대한 ID를 찾을 수 없습니다!");
+
+                    // 유사한 이름의 과목이 있는지 확인
+                    try
+                    {
+                        using var conn = new System.Data.SQLite.SQLiteConnection($"Data Source={System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "data", "notea.db")};Version=3;");
+                        conn.Open();
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = "SELECT subjectId, Name FROM Subject WHERE Name LIKE @searchName";
+                        cmd.Parameters.AddWithValue("@searchName", $"%{subjectName}%");
+
+                        using var reader = cmd.ExecuteReader();
+                        System.Diagnostics.Debug.WriteLine($"[MainViewModel] '{subjectName}'과 유사한 과목들:");
+                        while (reader.Read())
+                        {
+                            System.Diagnostics.Debug.WriteLine($"  - ID: {reader["subjectId"]}, Name: '{reader["Name"]}'");
+                        }
+                    }
+                    catch (Exception dbEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"[MainViewModel] 유사 과목 검색 오류: {dbEx.Message}");
+                    }
+                }
+
+                return result;
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] SubjectId 조회 오류: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 스택 트레이스: {ex.StackTrace}");
                 return 0;
             }
         }
@@ -411,7 +483,7 @@ namespace Notea.ViewModels
                 conn.Open();
                 using var cmd = conn.CreateCommand();
 
-                // ✅ 수정: s.title → s.Name (올바른 컬럼명 사용)
+                // ✅ 수정: Subject 테이블의 컬럼명 통일
                 cmd.CommandText = @"
             SELECT c.categoryId 
             FROM category c 
@@ -426,7 +498,7 @@ namespace Notea.ViewModels
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[MainViewModel] GetCategoryIdByTitle 오류: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] CategoryId 조회 오류: {ex.Message}");
                 return 0;
             }
         }

@@ -37,38 +37,32 @@ namespace Notea.Modules.Subject.ViewModels
 
         public NoteEditorViewModel()
         {
-            Lines = new ObservableCollection<MarkdownLineViewModel>
-            {
-                new MarkdownLineViewModel
-                {
-                    IsEditing = true,  // 처음에 편집 가능하도록
-                    SubjectId = this.SubjectId,
-                    CategoryId = this.CurrentCategoryId,
-                    Content = ""  // 빈 내용으로 시작
-                }
-            };
-
+            Lines = new ObservableCollection<MarkdownLineViewModel>();
             InitializeIdleTimer();
             InitializeTimerIntegration();
 
-            // PropertyChanged 이벤트 등록
-            Lines[0].PropertyChanged += OnLinePropertyChanged;
-
-            Lines.CollectionChanged += (s, e) =>
+            // ✅ 빈 라인 하나 추가 (SubjectId는 나중에 설정됨)
+            var emptyLine = new MarkdownLineViewModel
             {
-                if (Lines.Count == 0)
-                {
-                    var newLine = new MarkdownLineViewModel
-                    {
-                        IsEditing = true,
-                        SubjectId = this.SubjectId,
-                        CategoryId = this.CurrentCategoryId,
-                        Content = ""
-                    };
-                    newLine.PropertyChanged += OnLinePropertyChanged;
-                    Lines.Add(newLine);
-                }
+                IsEditing = true,
+                SubjectId = 0, // 초기값, 나중에 SetSubjectId에서 설정됨
+                CategoryId = 0, // 초기값, 실제 저장시 자동 할당
+                Content = "",
+                DisplayOrder = 1,
+                TextId = 0,
+                Index = 0
             };
+
+            emptyLine.SetOriginalContent("");
+            Lines.Add(emptyLine);
+            RegisterLineEvents(emptyLine);
+
+            _nextDisplayOrder = 2;
+            CurrentCategoryId = 0; // 초기값
+
+            Lines.CollectionChanged += Lines_CollectionChanged;
+
+            Debug.WriteLine($"[NoteEditor] 기본 생성자 완료 - 빈 라인 1개 추가");
         }
 
         public NoteEditorViewModel(List<NoteCategory> loadedNotes)
@@ -91,6 +85,14 @@ namespace Notea.Modules.Subject.ViewModels
 
                 _nextDisplayOrder = currentDisplayOrder;
                 Debug.WriteLine($"[LOAD] 로드 완료. 총 라인 수: {Lines.Count}");
+
+                // ✅ 첫 번째 카테고리의 ID를 CurrentCategoryId로 설정
+                var firstCategory = Lines.FirstOrDefault(l => l.IsHeadingLine);
+                if (firstCategory != null)
+                {
+                    CurrentCategoryId = firstCategory.CategoryId;
+                    Debug.WriteLine($"[LOAD] CurrentCategoryId 설정: {CurrentCategoryId}");
+                }
             }
 
             // 라인이 없으면 빈 라인 추가
@@ -101,6 +103,22 @@ namespace Notea.Modules.Subject.ViewModels
             }
 
             Lines.CollectionChanged += Lines_CollectionChanged;
+        }
+
+        public void SetSubjectId(int subjectId)
+        {
+            SubjectId = subjectId;
+
+            // 모든 라인의 SubjectId 업데이트
+            foreach (var line in Lines)
+            {
+                if (line.SubjectId != subjectId)
+                {
+                    line.SubjectId = subjectId;
+                }
+            }
+
+            Debug.WriteLine($"[NoteEditor] SubjectId 설정 완료: {subjectId} (총 {Lines.Count}개 라인)");
         }
 
         private void InitializeTimerIntegration()
@@ -151,7 +169,8 @@ namespace Notea.Modules.Subject.ViewModels
                 using var conn = Notea.Modules.Common.Helpers.DatabaseHelper.Instance.GetConnection();
                 conn.Open();
                 using var cmd = conn.CreateCommand();
-                cmd.CommandText = "SELECT title FROM subject WHERE subJectId = @subjectId";
+
+                cmd.CommandText = "SELECT Name FROM Subject WHERE subjectId = @subjectId";
                 cmd.Parameters.AddWithValue("@subjectId", subjectId);
 
                 var result = cmd.ExecuteScalar();
@@ -166,12 +185,11 @@ namespace Notea.Modules.Subject.ViewModels
 
         private void AddInitialEmptyLine()
         {
-            // 기본 카테고리 ID 사용 (1)
             var emptyLine = new MarkdownLineViewModel
             {
                 IsEditing = true,
-                SubjectId = this.SubjectId,
-                CategoryId = 1, // 기본 카테고리
+                SubjectId = this.SubjectId, // 현재 설정된 SubjectId 사용
+                CategoryId = 0, // 초기값, 실제 저장시 자동 할당
                 Content = "",
                 DisplayOrder = 1,
                 TextId = 0,
@@ -182,13 +200,9 @@ namespace Notea.Modules.Subject.ViewModels
             Lines.Add(emptyLine);
             RegisterLineEvents(emptyLine);
 
-            CurrentCategoryId = 1;
-            Debug.WriteLine($"[LOAD] 빈 라인 추가됨. CategoryId: {emptyLine.CategoryId}");
+            CurrentCategoryId = 0; // 초기값
+            Debug.WriteLine($"[LOAD] 빈 라인 추가됨. SubjectId: {this.SubjectId}");
         }
-
-        /// <summary>
-        /// 카테고리와 하위 구조를 재귀적으로 추가
-        /// </summary>
         private int AddCategoryWithHierarchy(NoteCategory category, int displayOrder)
         {
             CurrentCategoryId = category.CategoryId;
@@ -461,18 +475,22 @@ namespace Notea.Modules.Subject.ViewModels
 
         private int GetCurrentCategoryIdForNewLine()
         {
-            // 마지막 라인부터 역순으로 가장 최근의 카테고리 찾기
-            for (int i = Lines.Count - 1; i >= 0; i--)
+            // 현재 커서 위치나 마지막 활성 카테고리 찾기
+            if (CurrentCategoryId > 0)
             {
-                if (Lines[i].IsHeadingLine && Lines[i].CategoryId > 0)
-                {
-                    Debug.WriteLine($"[DEBUG] 가장 최근 카테고리 찾음: {Lines[i].CategoryId} (라인 {i}, 레벨 {Lines[i].Level})");
-                    return Lines[i].CategoryId;
-                }
+                return CurrentCategoryId;
             }
 
-            Debug.WriteLine($"[DEBUG] 카테고리를 찾지 못함. CurrentCategoryId 사용: {CurrentCategoryId}");
-            return CurrentCategoryId > 0 ? CurrentCategoryId : 1;
+            // 마지막 제목 라인의 CategoryId 찾기
+            var lastHeading = Lines.LastOrDefault(l => l.IsHeadingLine && l.CategoryId > 0);
+            if (lastHeading != null)
+            {
+                CurrentCategoryId = lastHeading.CategoryId;
+                return CurrentCategoryId;
+            }
+
+            // 첫 번째 제목이 생성될 때까지는 0 반환 (저장시 자동 할당됨)
+            return 0;
         }
 
         private void OnLinePropertyChanged(object sender, PropertyChangedEventArgs e)
@@ -844,38 +862,25 @@ namespace Notea.Modules.Subject.ViewModels
             if (index < 0 || index > Lines.Count)
                 index = Lines.Count;
 
-            // 삽입 위치에서의 CategoryId 결정
             int categoryId = DetermineCategoryIdForIndex(index);
             int displayOrder = GetDisplayOrderForIndex(index);
-
-            Debug.WriteLine($"[INSERT] 새 라인 삽입. Index: {index}, CategoryId: {categoryId}, DisplayOrder: {displayOrder}");
 
             var newLine = new MarkdownLineViewModel
             {
                 IsEditing = true,
-                Content = "",
-                SubjectId = this.SubjectId,
+                SubjectId = this.SubjectId, // ✅ 현재 SubjectId 사용
                 CategoryId = categoryId,
+                Content = "",
                 Index = index,
                 DisplayOrder = displayOrder,
                 TextId = 0
             };
 
-            // UI에 즉시 반영
+            Debug.WriteLine($"[INSERT] 새 라인 삽입. Index: {index}, SubjectId: {this.SubjectId}, CategoryId: {categoryId}, DisplayOrder: {displayOrder}");
+
             Lines.Insert(index, newLine);
-
-            // 이후 라인들의 Index 업데이트
-            for (int i = index + 1; i < Lines.Count; i++)
-            {
-                Lines[i].Index = i;
-                if (Lines[i].DisplayOrder <= displayOrder)
-                {
-                    Lines[i].DisplayOrder = displayOrder + (i - index);
-                }
-            }
-
-            // 이벤트 등록
             RegisterLineEvents(newLine);
+            UpdateLineIndicesFrom(index + 1);
 
             Debug.WriteLine($"[INSERT] 새 라인 삽입 완료");
         }
