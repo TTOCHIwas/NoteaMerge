@@ -1154,14 +1154,10 @@ namespace Notea.Modules.Subject.Models
 
                     if (type == "category")
                     {
-                        // 카테고리를 제목 라인으로 변환
-                        var level = Convert.ToInt32(reader["level"]);
-                        var headingPrefix = new string('#', level) + " ";
-
                         line = new NoteLine
                         {
                             Index = Convert.ToInt32(reader["id"]),
-                            Content = headingPrefix + content,
+                            Content = content,
                             ContentType = "heading",
                             DisplayOrder = displayOrder,
                             CategoryId = categoryId,
