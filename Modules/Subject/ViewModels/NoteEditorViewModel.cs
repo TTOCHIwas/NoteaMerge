@@ -550,6 +550,32 @@ namespace Notea.Modules.Subject.ViewModels
             }
         }
 
+        private int FindPreviousCategoryId(MarkdownLineViewModel currentLine)
+        {
+            try
+            {
+                int currentIndex = Lines.IndexOf(currentLine);
+                if (currentIndex <= 0) return 1; // 첫 번째 라인이면 기본 카테고리
+
+                // 현재 라인 이전에 있는 가장 가까운 제목 찾기
+                for (int i = currentIndex - 1; i >= 0; i--)
+                {
+                    if (Lines[i].IsHeadingLine && Lines[i].CategoryId > 0)
+                    {
+                        return Lines[i].CategoryId;
+                    }
+                }
+
+                // 이전 제목이 없으면 데이터베이스에서 찾기
+                return NoteRepository.FindPreviousCategoryIdByDisplayOrder(SubjectId, currentLine.DisplayOrder);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[ERROR] FindPreviousCategoryId 실패: {ex.Message}");
+                return 1;
+            }
+        }
+
         private void ScheduleHierarchyUpdate(MarkdownLineViewModel line)
         {
             // 실제 구현에서는 펜딩 업데이트 큐에 추가

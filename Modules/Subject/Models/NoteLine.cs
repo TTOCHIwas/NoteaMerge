@@ -12,5 +12,7 @@ namespace Notea.Modules.Subject.ViewModels
         public string Content { get; set; }
         public string ContentType { get; set; } = "text";
         public string ImageUrl { get; set; }
+
+        public int DisplayOrder { get; set; }
     }
 }
