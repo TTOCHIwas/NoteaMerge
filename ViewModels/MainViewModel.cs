@@ -165,31 +165,24 @@ namespace Notea.ViewModels
 
         public MainViewModel()
         {
-            // 🆕 공유 데이터 소스 초기화 (실제 측정 시간만)
             SharedSubjectProgress = new ObservableCollection<SubjectProgressViewModel>();
 
-            // 사이드바 ViewModel 초기화
             SidebarViewModel = new LeftSidebarViewModel("main");
 
-            // ViewModel들 생성 (한 번만) - 🚨 skipInitialLoad: true 추가
             _dailyHeaderVM = new DailyHeaderViewModel();
             _dailyBodyVM = new DailyBodyViewModel(AppStartDate, skipInitialLoad: true); // ✅ 초기 로딩 스킵
             _subjectListPageVM = new SubjectListPageViewModel();
 
-            // 🆕 DailyBodyViewModel의 Subjects를 공유 데이터로 교체
             _dailyBodyVM.SetSharedSubjects(SharedSubjectProgress);
 
-            // View들 생성 및 DataContext 설정 (한 번만)
             _dailyHeaderView = new DailyHeaderView { DataContext = _dailyHeaderVM };
             _dailyBodyView = new DailyBodyView { DataContext = _dailyBodyVM };
             _subjectHeaderView = new SubjectListPageHeaderView();
             _subjectBodyView = new SubjectListPageBodyView { DataContext = _subjectListPageVM };
 
-            // 초기 화면 설정 (Daily 화면)
             HeaderContent = _dailyHeaderView;
             BodyContent = _dailyBodyView;
 
-            // Commands 초기화
             ToggleSidebarCommand = new RelayCommand(ToggleSidebar);
             ExpandSidebarCommand = new RelayCommand(ExpandSidebar);
             NavigateToSubjectListCommand = new RelayCommand(NavigateToSubjectList);
@@ -321,25 +314,26 @@ namespace Notea.ViewModels
         {
             try
             {
-                // 필기 내용 저장
                 if (_notePageVM != null)
                 {
                     _notePageVM.EditorViewModel?.ForceFullSave();
                     _notePageVM.SaveChanges();
                 }
 
-                // 과목 목록 화면으로 복귀
                 HeaderContent = _subjectHeaderView;
                 BodyContent = _subjectBodyView;
-                SidebarViewModel.SetContext("today");
-                SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
 
-                // 사용한 View들 정리
+                SidebarViewModel.SetContext("main");
+
+                SidebarViewModel.RefreshData();
+
+                _subjectListPageVM?.RefreshData();
+
                 _notePageHeaderView = null;
                 _notePageBodyView = null;
                 _notePageVM = null;
 
-                System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록으로 돌아감");
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록으로 돌아감 완료 (데이터 새로고침됨)");
             }
             catch (Exception ex)
             {
@@ -402,11 +396,18 @@ namespace Notea.ViewModels
         {
             try
             {
+                SaveCurrentNotePageIfExists();
+
                 HeaderContent = _subjectHeaderView;
                 BodyContent = _subjectBodyView;
+
                 SidebarViewModel.SetContext("today");
-                SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
-                System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록 페이지로 이동");
+
+                SidebarViewModel.RefreshData();
+
+                _subjectListPageVM?.RefreshData();
+
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록 페이지로 이동 완료 (데이터 새로고침됨)");
             }
             catch (Exception ex)
             {
@@ -418,15 +419,42 @@ namespace Notea.ViewModels
         {
             try
             {
+                // ✅ 필기 화면에서 나갈 때 저장 로직 추가
+                SaveCurrentNotePageIfExists();
+
                 HeaderContent = _dailyHeaderView;
                 BodyContent = _dailyBodyView;
                 SidebarViewModel.SetContext("main");
+
+                // ✅ 사이드바 데이터 새로고침 추가
+                SidebarViewModel.RefreshData();
 
                 System.Diagnostics.Debug.WriteLine("[MainViewModel] 오늘 페이지로 이동");
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] 오늘 페이지 이동 오류: {ex.Message}");
+            }
+        }
+
+        private void SaveCurrentNotePageIfExists()
+        {
+            try
+            {
+                if (_notePageVM != null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[MainViewModel] 필기 화면 이탈 감지 - 데이터 저장 시작");
+
+                    // 강제 즉시 저장
+                    _notePageVM.EditorViewModel?.ForceFullSave();
+                    _notePageVM.SaveChanges();
+
+                    System.Diagnostics.Debug.WriteLine("[MainViewModel] 필기 화면 이탈 - 데이터 저장 완료");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 필기 화면 이탈 저장 오류: {ex.Message}");
             }
         }
 

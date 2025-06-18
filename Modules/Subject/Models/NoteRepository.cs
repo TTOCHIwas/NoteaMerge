@@ -1229,41 +1229,56 @@ namespace Notea.Modules.Subject.Models
         {
             try
             {
+                System.Diagnostics.Debug.WriteLine($"[CATEGORY] 기본 카테고리 확인 - SubjectId: {subjectId}");
+
                 using var conn = new SQLiteConnection(GetConnectionString());
                 conn.Open();
 
-                // 해당 과목의 기본 카테고리가 있는지 확인
-                using var checkCmd = conn.CreateCommand();
-                checkCmd.CommandText = "SELECT categoryId FROM category WHERE subjectId = @subjectId AND title = '기본' LIMIT 1";
-                checkCmd.Parameters.AddWithValue("@subjectId", subjectId);
+                // ✅ 트랜잭션 타임아웃 설정
+                using var transaction = conn.BeginTransaction();
 
-                var existingId = checkCmd.ExecuteScalar();
-                if (existingId != null)
+                try
                 {
-                    var categoryId = Convert.ToInt32(existingId);
-                    Debug.WriteLine($"[CATEGORY] 기존 기본 카테고리 사용: CategoryId={categoryId}");
-                    return categoryId;
+                    // 기존 기본 카테고리 조회
+                    using var checkCmd = conn.CreateCommand();
+                    checkCmd.Transaction = transaction;
+                    checkCmd.CommandText = "SELECT categoryId FROM category WHERE subjectId = @subjectId AND (title = '기본' OR title LIKE '%기본%') LIMIT 1";
+                    checkCmd.Parameters.AddWithValue("@subjectId", subjectId);
+
+                    var existingId = checkCmd.ExecuteScalar();
+
+                    if (existingId != null && existingId != DBNull.Value)
+                    {
+                        transaction.Commit();
+                        return Convert.ToInt32(existingId);
+                    }
+
+                    // 새 기본 카테고리 생성
+                    using var insertCmd = conn.CreateCommand();
+                    insertCmd.Transaction = transaction;
+                    insertCmd.CommandText = @"
+                INSERT INTO category (title, subjectId, displayOrder, level, parentCategoryId) 
+                VALUES ('기본', @subjectId, 1, 1, NULL);
+                SELECT last_insert_rowid();";
+                    insertCmd.Parameters.AddWithValue("@subjectId", subjectId);
+
+                    var newCategoryId = Convert.ToInt32(insertCmd.ExecuteScalar());
+                    transaction.Commit();
+
+                    System.Diagnostics.Debug.WriteLine($"[CATEGORY] 기본 카테고리 생성 완료: {newCategoryId}");
+                    return newCategoryId;
                 }
-
-                // 기본 카테고리 생성
-                using var insertCmd = conn.CreateCommand();
-                insertCmd.CommandText = @"
-            INSERT INTO category (subjectId, title, displayOrder, level, parentCategoryId)
-            VALUES (@subjectId, '기본', 1, 1, 0)";
-
-                insertCmd.Parameters.AddWithValue("@subjectId", subjectId);
-                insertCmd.ExecuteNonQuery();
-
-                // 생성된 CategoryId 반환
-                var newCategoryId = Convert.ToInt32(conn.LastInsertRowId);
-                Debug.WriteLine($"[CATEGORY] 새 기본 카테고리 생성: CategoryId={newCategoryId}");
-
-                return newCategoryId;
+                catch (Exception ex)
+                {
+                    transaction.Rollback();
+                    System.Diagnostics.Debug.WriteLine($"[CATEGORY ERROR] 기본 카테고리 생성 실패: {ex.Message}");
+                    throw;
+                }
             }
             catch (Exception ex)
             {
-                Debug.WriteLine($"[CATEGORY ERROR] 기본 카테고리 생성 실패: {ex.Message}");
-                return 1; // 실패 시 기본값
+                System.Diagnostics.Debug.WriteLine($"[CATEGORY ERROR] EnsureDefaultCategory 실패: {ex.Message}");
+                return 1; // 비상용 기본값
             }
         }
 

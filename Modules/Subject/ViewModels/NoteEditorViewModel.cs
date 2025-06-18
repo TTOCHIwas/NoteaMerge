@@ -1518,51 +1518,83 @@ namespace Notea.Modules.Subject.ViewModels
 
             Debug.WriteLine($"[DRAG] 시작 - Dragged: {draggedIndex}, Target: {targetIndex}, InsertBefore: {insertBefore}");
 
-            // 라인 제거
-            Lines.RemoveAt(draggedIndex);
-
-            // 새 위치 계산
-            int newIndex = targetIndex;
-            if (draggedIndex < targetIndex)
+            // ✅ 드래그 전 상태 백업 (안전장치)
+            var backupLines = new List<(MarkdownLineViewModel line, int originalIndex, int originalDisplayOrder, int originalCategoryId)>();
+            for (int i = 0; i < Lines.Count; i++)
             {
-                newIndex = insertBefore ? targetIndex - 1 : targetIndex;
-            }
-            else
-            {
-                newIndex = insertBefore ? targetIndex : targetIndex + 1;
+                var line = Lines[i];
+                backupLines.Add((line, line.Index, line.DisplayOrder, line.CategoryId));
             }
 
-            // 라인 삽입
-            Lines.Insert(newIndex, draggedLine);
+            try
+            {
+                // 라인 제거
+                Lines.RemoveAt(draggedIndex);
 
-            // 모든 라인의 DisplayOrder와 Index 재정렬
-            ReorderAllLines();
+                // 새 위치 계산
+                int newIndex = targetIndex;
+                if (draggedIndex < targetIndex)
+                {
+                    newIndex = insertBefore ? targetIndex - 1 : targetIndex;
+                }
+                else
+                {
+                    newIndex = insertBefore ? targetIndex : targetIndex + 1;
+                }
 
-            // 카테고리 재할당
-            ReassignCategories();
+                // 라인 삽입
+                Lines.Insert(newIndex, draggedLine);
 
-            Debug.WriteLine($"[DRAG] 완료 - 이동: {draggedIndex} -> {newIndex}");
+                // 모든 라인의 DisplayOrder와 Index 재정렬
+                ReorderAllLinesWithSave();
+
+                // 카테고리 재할당
+                ReassignCategoriesWithSave();
+
+                // ✅ 즉시 저장 실행
+                ForceImmediateSave();
+
+                Debug.WriteLine($"[DRAG] 완료 및 저장됨 - 이동: {draggedIndex} -> {newIndex}");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DRAG ERROR] 드래그 실패, 원상복구 시도: {ex.Message}");
+
+                try
+                {
+                    RestoreFromBackup(backupLines);
+                    Debug.WriteLine("[DRAG] 원상복구 완료");
+                }
+                catch (Exception restoreEx)
+                {
+                    Debug.WriteLine($"[DRAG ERROR] 원상복구 실패: {restoreEx.Message}");
+                }
+
+                throw;
+            }
         }
 
-        private void ReorderAllLines()
+        private void ReorderAllLinesWithSave()
         {
             for (int i = 0; i < Lines.Count; i++)
             {
                 var line = Lines[i];
-                line.Index = i;
-                line.DisplayOrder = i + 1;
+                int newDisplayOrder = i + 1;
 
-                // 변경사항 표시
-                if (!line.HasChanges)
+                if (line.DisplayOrder != newDisplayOrder || line.Index != i)
                 {
-                    line.OnPropertyChanged(nameof(line.DisplayOrder));
-                }
+                    line.Index = i;
+                    line.DisplayOrder = newDisplayOrder;
 
-                Debug.WriteLine($"[REORDER] Index: {i}, DisplayOrder: {line.DisplayOrder}, Content: {line.Content?.Substring(0, Math.Min(20, line.Content?.Length ?? 0))}");
+                    line.OnPropertyChanged(nameof(line.DisplayOrder));
+                    line.OnPropertyChanged(nameof(line.HasChanges));
+
+                    Debug.WriteLine($"[REORDER] Index: {i}, DisplayOrder: {line.DisplayOrder}, Content: {line.Content?.Substring(0, Math.Min(20, line.Content?.Length ?? 0))}");
+                }
             }
         }
 
-        private void ReassignCategories()
+        private void ReassignCategoriesWithSave()
         {
             int currentCategoryId = 1; // 기본 카테고리
 
@@ -1572,7 +1604,6 @@ namespace Notea.Modules.Subject.ViewModels
 
                 if (line.IsHeadingLine)
                 {
-                    // 헤딩이면 현재 카테고리 업데이트
                     if (line.CategoryId > 0)
                     {
                         currentCategoryId = line.CategoryId;
@@ -1580,20 +1611,86 @@ namespace Notea.Modules.Subject.ViewModels
                 }
                 else
                 {
-                    // 일반 텍스트나 이미지는 현재 카테고리에 할당
                     if (line.CategoryId != currentCategoryId)
                     {
                         Debug.WriteLine($"[REASSIGN] 라인 {i}의 CategoryId 변경: {line.CategoryId} -> {currentCategoryId}");
                         line.CategoryId = currentCategoryId;
 
-                        // 변경사항 표시
-                        if (!line.HasChanges)
-                        {
-                            line.OnPropertyChanged(nameof(line.CategoryId));
-                        }
+                        line.OnPropertyChanged(nameof(line.CategoryId));
+                        line.OnPropertyChanged(nameof(line.HasChanges));
                     }
                 }
             }
+        }
+
+        private void ForceImmediateSave()
+        {
+            try
+            {
+                Debug.WriteLine("[DRAG] 드래그 완료 - 즉시 저장 시작");
+
+                // IdleTimer 정지 (중복 저장 방지)
+                _idleTimer?.Stop();
+
+                // 모든 변경사항 즉시 저장
+                SaveAllChanges();
+
+                // IdleTimer 재시작
+                _idleTimer?.Start();
+
+                Debug.WriteLine("[DRAG] 드래그 완료 - 즉시 저장 완료");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DRAG ERROR] 즉시 저장 실패: {ex.Message}");
+                throw;
+            }
+        }
+
+        private void RestoreFromBackup(List<(MarkdownLineViewModel line, int originalIndex, int originalDisplayOrder, int originalCategoryId)> backup)
+        {
+            try
+            {
+                // Lines 컬렉션 완전 재구성
+                var restoredLines = new List<MarkdownLineViewModel>();
+
+                // 원래 순서대로 정렬
+                var sortedBackup = backup.OrderBy(b => b.originalIndex).ToList();
+
+                foreach (var (line, originalIndex, originalDisplayOrder, originalCategoryId) in sortedBackup)
+                {
+                    line.Index = originalIndex;
+                    line.DisplayOrder = originalDisplayOrder;
+                    line.CategoryId = originalCategoryId;
+                    restoredLines.Add(line);
+                }
+
+                // Lines 컬렉션 교체
+                Lines.Clear();
+                foreach (var line in restoredLines)
+                {
+                    Lines.Add(line);
+                }
+
+                Debug.WriteLine($"[RESTORE] {restoredLines.Count}개 라인 원상복구 완료");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[RESTORE ERROR] 복원 실패: {ex.Message}");
+                throw;
+            }
+        }
+
+
+
+        private void ReorderAllLines()
+        {
+            ReorderAllLinesWithSave();
+        }
+
+        private void ReassignCategories()
+        {
+            ReassignCategoriesWithSave();
         }
 
         private void ReorderDisplayOrders()

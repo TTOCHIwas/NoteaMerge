@@ -106,7 +106,9 @@ namespace Notea.Modules.Common.ViewModels
                 };
             }
 
+            OnPropertyChanged(nameof(SidebarTitle));
             OnPropertyChanged(nameof(Subjects));
+            OnPropertyChanged(nameof(SidebarContentView));
         }
 
         public void SetContext(string context)
@@ -122,7 +124,7 @@ namespace Notea.Modules.Common.ViewModels
                     DataContext = this
                 };
             }
-            else // "today"
+            else // "today"SubjectProgressListView
             {
                 SidebarContentView = new SubjectProgressListView
                 {
