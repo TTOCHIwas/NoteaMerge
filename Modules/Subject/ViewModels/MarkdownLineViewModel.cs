@@ -137,7 +137,7 @@ namespace Notea.Modules.Subject.ViewModels
             {
                 if (NoteRepository.IsMarkdownHeading(Content))
                 {
-                    return NoteRepository.ExtractHeadingText(Content);
+                    return Content;
                 }
                 return Content;
             }

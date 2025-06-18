@@ -48,17 +48,6 @@ namespace Notea.Modules.Subject.Models
             return match.Success ? match.Groups[1].Value.Length : 0;
         }
 
-        /// <summary>
-        /// 제목에서 # 기호를 제거하고 실제 제목 텍스트만 추출
-        /// </summary>
-        public static string ExtractHeadingText(string content)
-        {
-            if (string.IsNullOrWhiteSpace(content)) return "";
-
-            var match = Regex.Match(content.Trim(), @"^#{1,6}\s+(.+)");
-            return match.Success ? match.Groups[1].Value.Trim() : content;
-        }
-
         #endregion
 
         #region 부모-자식 관계 및 계층 구조 메서드
@@ -293,7 +282,7 @@ namespace Notea.Modules.Subject.Models
         {
             try
             {
-                string title = ExtractHeadingText(content);
+                string title = content;
 
                 SQLiteConnection conn;
                 SQLiteTransaction trans = null;
@@ -1081,7 +1070,7 @@ namespace Notea.Modules.Subject.Models
                         reader["content"].ToString(),
                         Convert.ToInt32(reader["displayOrder"]),
                         Convert.ToInt32(reader["level"]),
-                        reader["parentCategoryId"] == DBNull.Value ? null : Convert.ToInt32(reader["parentCategoryId"]),
+                        reader["parentCategoryId"] == DBNull.Value ? 0 : Convert.ToInt32(reader["parentCategoryId"]),
                         reader["contentType"]?.ToString(),
                         reader["imageUrl"]?.ToString()
                     );

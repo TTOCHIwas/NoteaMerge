@@ -777,35 +777,6 @@ namespace Notea.Modules.Common.Helpers
             return;
         }
 
-        private void LoadTopicItemsForGroup(SQLiteConnection conn, TopicGroupViewModel topicGroup, int groupId)
-        {
-            using var itemCmd = conn.CreateCommand();
-            itemCmd.CommandText = "SELECT Id, Content, CreatedAt FROM TopicItem WHERE TopicGroupId = @groupId ORDER BY CreatedAt";
-            itemCmd.Parameters.AddWithValue("@groupId", groupId);
-
-            using var itemReader = itemCmd.ExecuteReader();
-            while (itemReader.Read())
-            {
-                var itemId = Convert.ToInt32(itemReader["Id"]);
-                var content = itemReader["Content"].ToString();
-                var createdAt = DateTime.Parse(itemReader["CreatedAt"].ToString());
-
-                var topicItem = new Notea.Modules.Subjects.Models.TopicItem
-                {
-                    Id = itemId,
-                    Content = content,
-                    ParentTopicGroupName = topicGroup.GroupTitle,
-                    ParentSubjectName = topicGroup.ParentSubjectName,
-                    Progress = 0.0,
-                    StudyTimeSeconds = 0 // ✅ 초단위 사용
-                };
-
-                topicGroup.Topics.Add(topicItem);
-            }
-
-            System.Diagnostics.Debug.WriteLine($"[DB] TopicGroup '{topicGroup.GroupTitle}'에 {topicGroup.Topics.Count}개 TopicItem 로드됨");
-        }
-
         public int GetSubjectDailyTimeSeconds(DateTime date, string subjectName)
         {
             return ExecuteWithRetry(() =>
@@ -1805,13 +1776,13 @@ namespace Notea.Modules.Common.Helpers
 
                         // ✅ 실제 존재하는 subject 테이블 사용
                         using var cmd = conn.CreateCommand();
-                        cmd.CommandText = "SELECT subJectId, title FROM subject ORDER BY title";
+                        cmd.CommandText = "SELECT subjectId, Name FROM Subject ORDER BY Name";
                         using var reader = cmd.ExecuteReader();
 
                         while (reader.Read())
                         {
-                            var subjectId = Convert.ToInt32(reader["subJectId"]);
-                            var subjectName = reader["title"].ToString();
+                            var subjectId = Convert.ToInt32(reader["subjectId"]);
+                            var subjectName = reader["Name"].ToString();
 
                             // ✅ StudySession에서 해당 과목의 학습시간 계산
                             var totalTime = GetSubjectTotalStudyTimeSeconds(subjectName);
