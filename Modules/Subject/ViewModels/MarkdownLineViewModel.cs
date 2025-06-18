@@ -252,7 +252,7 @@ namespace Notea.Modules.Subject.ViewModels
 
         public bool IsOrderedList => Regex.IsMatch(Content, @"^\d+\.\s+");
 
-        // 리스트 체크
+
         private void CheckListStatus()
         {
             // 순서 없는 리스트
