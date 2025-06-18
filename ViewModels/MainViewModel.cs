@@ -167,7 +167,8 @@ namespace Notea.ViewModels
             {
                 HeaderContent = _subjectHeaderView;
                 BodyContent = _subjectBodyView;
-                SidebarViewModel.SetContext("today"); 
+                SidebarViewModel.SetContext("today");
+                SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
                 System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록 페이지로 이동");
             }
             catch (Exception ex)

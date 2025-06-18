@@ -403,12 +403,27 @@ namespace Notea.Modules.Common.Helpers
             {
                 lock (_lockObject)
                 {
-                    using var conn = GetConnection();
-                    conn.Open();
-                    using var cmd = conn.CreateCommand();
-                    cmd.CommandText = "INSERT INTO Subject (Name) VALUES (@name); SELECT last_insert_rowid();";
-                    cmd.Parameters.AddWithValue("@name", name);
-                    return Convert.ToInt32(cmd.ExecuteScalar());
+                    try
+                    {
+                        using var conn = GetConnection();
+                        conn.Open();
+                        using var cmd = conn.CreateCommand();
+                        cmd.CommandText = "INSERT INTO Subject (Name) VALUES (@name); SELECT last_insert_rowid();";
+                        cmd.Parameters.AddWithValue("@name", name);
+                        return Convert.ToInt32(cmd.ExecuteScalar());
+                    }
+                    catch (System.Data.SQLite.SQLiteException ex)
+                    {
+                        // UNIQUE constraint 오류 확인
+                        if (ex.Message.Contains("UNIQUE constraint failed") && ex.Message.Contains("Subject.Name"))
+                        {
+                            System.Diagnostics.Debug.WriteLine($"[DB] 중복 과목명 오류: {name}");
+                            // 중복 과목명임을 알리는 특별한 예외 던지기
+                            throw new InvalidOperationException($"'{name}' 과목이 이미 존재합니다.");
+                        }
+                        // 다른 SQLite 오류는 그대로 전파
+                        throw;
+                    }
                 }
             });
         }
@@ -588,18 +603,16 @@ namespace Notea.Modules.Common.Helpers
                 lock (_lockObject)
                 {
                     var result = new List<SubjectGroupViewModel>();
-
                     using var conn = GetConnection();
                     conn.Open();
 
                     var cmd = conn.CreateCommand();
-                    // ✅ 수정: Subject 테이블의 Name 컬럼 사용
-                    cmd.CommandText = "SELECT subjectId, Name FROM Subject ORDER BY Name";
+                    // ✅ 수정: 최신 순으로 정렬 (createdDate 내림차순)
+                    cmd.CommandText = "SELECT subjectId, Name FROM Subject ORDER BY createdDate DESC";
 
                     using var reader = cmd.ExecuteReader();
                     while (reader.Read())
                     {
-                        // ✅ 수정: 정확한 컬럼명 사용
                         var subjectId = Convert.ToInt32(reader["subjectId"]);
                         var subjectName = reader["Name"].ToString();
 
