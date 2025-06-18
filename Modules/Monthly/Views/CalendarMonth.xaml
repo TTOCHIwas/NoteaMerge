@@ -28,7 +28,11 @@
             </Grid.ColumnDefinitions>
 
             <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center" Height="auto">
-                <TextBlock x:Name="date" Style="{StaticResource titleStyle}" Text="0000/00"/>
+                <TextBlock x:Name="date" Style="{StaticResource titleStyle}" Text="0000/00" Cursor="Hand">
+                    <TextBlock.InputBindings>
+                        <MouseBinding MouseAction="LeftClick" Command="{Binding DataContext.NavigateToYearlyCommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"/>
+                    </TextBlock.InputBindings>
+                </TextBlock>
                 <Button Margin="18, 0, 8, 0" Style="{StaticResource DownButtonStyle}" Click="PreviousMonthButton_OnClick"/>
                 <Button Style="{StaticResource UpButtonStyle}" Click="NextMonthButton_OnClick"/>
             </StackPanel>

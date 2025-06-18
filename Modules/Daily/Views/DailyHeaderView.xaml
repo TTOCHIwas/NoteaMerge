@@ -43,7 +43,13 @@
                            FontSize="32"
                            FontWeight="Bold"
                            VerticalAlignment="Center"
-                           HorizontalAlignment="Center"/>
+                           HorizontalAlignment="Center" Cursor="Hand">
+                        <TextBlock.InputBindings>
+                            <MouseBinding MouseAction="LeftClick"
+                                  Command="{Binding NavigateToCalendarCommand, RelativeSource={RelativeSource AncestorType={x:Type Window}}}"
+                                          CommandParameter="{Binding CurrentDate}"/>
+                        </TextBlock.InputBindings>
+                    </TextBlock>
                 </Grid>
             </Border>
         </Grid>

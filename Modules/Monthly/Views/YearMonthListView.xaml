@@ -4,10 +4,14 @@
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
       xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
-      xmlns:local="clr-namespace:Notea.Modules.Monthly.Views"
-      mc:Ignorable="d" >
+      xmlns:local="clr-namespace:Notea.Modules.Monthly.Views" xmlns:vm="clr-namespace:Notea.Modules.Monthly.ViewModels"
+             mc:Ignorable="d" >
+    
+    <UserControl.Resources>
+        <vm:YearMonthListViewModel x:Key="yearMonthListVm" />
+    </UserControl.Resources>
 
-    <Grid Margin="20">
+    <Grid Margin="20" DataContext="{StaticResource yearMonthListVm}">
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="Auto"/>
@@ -20,7 +24,7 @@
                    Style="{StaticResource titleStyle}"
                    FontSize="24"
                    Margin="20,0,0,20"/>
-
+        
         <Rectangle Grid.Row="1" Height="1" Fill="{StaticResource black}" HorizontalAlignment="Stretch"/>
 
         <!-- 월별 리스트 -->

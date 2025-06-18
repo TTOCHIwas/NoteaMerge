@@ -18,7 +18,8 @@
 
             <!-- 유동 헤더 -->
             <ContentControl Grid.Row="0" Content="{Binding HeaderContent, RelativeSource={RelativeSource AncestorType=UserControl}}" 
-                            HorizontalAlignment="Stretch"/>
+                            HorizontalAlignment="Stretch"
+                            Visibility="{Binding DataContext.IsHeaderVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
             <!-- 유동 바디 -->
             <ContentControl Grid.Row="1" Content="{Binding BodyContent, RelativeSource={RelativeSource AncestorType=UserControl}}"

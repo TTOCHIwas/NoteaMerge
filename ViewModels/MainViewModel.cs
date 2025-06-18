@@ -10,6 +10,8 @@ using System.Windows.Threading;
 using Notea.Modules.Common.ViewModels;
 using Notea.Modules.Daily.ViewModels;
 using Notea.Modules.Daily.Views;
+using Notea.Modules.Monthly.ViewModels;
+using Notea.Modules.Monthly.Views;
 using Notea.Modules.Subjects.ViewModels;
 using Notea.Modules.Subjects.Views;
 
@@ -26,12 +28,16 @@ namespace Notea.ViewModels
         private readonly DailyHeaderViewModel _dailyHeaderVM;
         private readonly DailyBodyViewModel _dailyBodyVM;
         private readonly SubjectListPageViewModel _subjectListPageVM;
+        private readonly MonthlyPlanViewModel _monthlyPlanVM;
+        private readonly YearMonthListViewModel _yearMonthListVM;
 
         // View들 (한 번만 생성)
         private readonly DailyHeaderView _dailyHeaderView;
         private readonly DailyBodyView _dailyBodyView;
         private readonly SubjectListPageHeaderView _subjectHeaderView;
         private readonly SubjectListPageBodyView _subjectBodyView;
+        private readonly CalendarMonth _calendarMonthView;
+        private readonly YearMonthListView _yearMonthListView;
 
         // 🆕 공유 데이터 소스 - 두 페이지에서 모두 사용 (실제 측정 시간만)
         public ObservableCollection<SubjectProgressViewModel> SharedSubjectProgress { get; set; }
@@ -60,16 +66,34 @@ namespace Notea.ViewModels
                 {
                     _leftSidebarWidth = value;
                     OnPropertyChanged(nameof(LeftSidebarWidth));
+                    OnPropertyChanged(nameof(IsSidebarCollapsed));
                 }
             }
         }
+
+        public bool IsSidebarCollapsed => LeftSidebarWidth.Value == 0;
 
         public ICommand ToggleSidebarCommand { get; }
         public ICommand ExpandSidebarCommand { get; }
         public ICommand NavigateToSubjectListCommand { get; }
         public ICommand NavigateToTodayCommand { get; }
+        public ICommand NavigateToCalendarCommand { get; }
+        public ICommand NavigateToYearlyCommand { get; }
+        public ICommand NavigateToDailyViewForDateCommand { get; }
+        public ICommand NavigateToCalendarFromYearlyCommand { get; }
 
-        private UserControl _headerContent;
+        private bool _isHeaderVisible = true;
+        public bool IsHeaderVisible
+        {
+            get => _isHeaderVisible;
+            set
+            {
+               _isHeaderVisible = value;
+                OnPropertyChanged(nameof(IsHeaderVisible));
+            }
+        }
+
+private UserControl _headerContent;
         public UserControl HeaderContent
         {
             get => _headerContent;
@@ -127,6 +151,9 @@ namespace Notea.ViewModels
             _dailyHeaderVM = new DailyHeaderViewModel();
             _dailyBodyVM = new DailyBodyViewModel(AppStartDate);
             _subjectListPageVM = new SubjectListPageViewModel();
+            _monthlyPlanVM = new MonthlyPlanViewModel();
+            _yearMonthListVM = new YearMonthListViewModel();
+
 
             // 🆕 DailyBodyViewModel의 Subjects를 공유 데이터로 교체
             _dailyBodyVM.SetSharedSubjects(SharedSubjectProgress);
@@ -136,6 +163,8 @@ namespace Notea.ViewModels
             _dailyBodyView = new DailyBodyView { DataContext = _dailyBodyVM };
             _subjectHeaderView = new SubjectListPageHeaderView();
             _subjectBodyView = new SubjectListPageBodyView { DataContext = _subjectListPageVM };
+            _calendarMonthView = new CalendarMonth { DataContext =_calendarMonthView};
+            _yearMonthListView = new YearMonthListView { DataContext = _yearMonthListVM };
 
             // 초기 화면 설정 (Daily 화면)
             HeaderContent = _dailyHeaderView;
@@ -147,6 +176,10 @@ namespace Notea.ViewModels
 
             NavigateToSubjectListCommand = new RelayCommand(NavigateToSubjectList);
             NavigateToTodayCommand = new RelayCommand(NavigateToToday);
+            NavigateToCalendarCommand = new RelayCommand<DateTime?>(NavigateToCalendar);
+            NavigateToYearlyCommand = new RelayCommand(NavigateToYearly);
+            NavigateToDailyViewForDateCommand = new RelayCommand<DateTime>(NavigateToDailyViewForDate);
+            NavigateToCalendarFromYearlyCommand = new RelayCommand<YearMonthViewModel>(NavigateToCalendarFromYearly);
 
             // ✅ 수정: 초기화 순서 변경
             try
@@ -167,6 +200,7 @@ namespace Notea.ViewModels
         {
             try
             {
+                IsHeaderVisible = true;
                 HeaderContent = _subjectHeaderView;
                 BodyContent = _subjectBodyView;
                 System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록 페이지로 이동");
@@ -181,18 +215,49 @@ namespace Notea.ViewModels
         {
             try
             {
-                HeaderContent = _dailyHeaderView;
-                BodyContent = _dailyBodyView;
-                System.Diagnostics.Debug.WriteLine("[MainViewModel] 오늘 페이지로 이동");
+                NavigateToDailyViewForDate(AppStartDate);
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] 오늘 페이지 이동 오류: {ex.Message}");
             }
         }
+        private void NavigateToDailyViewForDate(DateTime date)
+        {
+            IsHeaderVisible = true;
+            _dailyHeaderVM.CurrentDate = date.ToString("yyyy.MM.dd"); // 헤더 날짜 변경
+            _dailyBodyVM.LoadDailyData(date); // 바디 데이터 변경
+            HeaderContent = _dailyHeaderView;
+            BodyContent = _dailyBodyView;
+            System.Diagnostics.Debug.WriteLine($"[MainViewModel] {date:yyyy.MM.dd}의 Daily 페이지로 이동");
+        }
+        private void NavigateToCalendar(DateTime? date)
+        {
+            IsHeaderVisible = false;
+            _calendarMonthView.CurrentDate = date ?? DateTime.Now; // 특정 날짜가 있으면 그 날짜로, 없으면 오늘 날짜로 달력 설정
+            BodyContent = _calendarMonthView;
+        }
 
-        // ✅ 수정: 진행률 업데이트 시스템 설정
-        private void SetupProgressUpdateSystem()
+        private void NavigateToYearly()
+        {
+            IsHeaderVisible = false;
+           // 연도별 보기로 전환 시, 현재 달력의 연도를 반영
+            if (_yearMonthListView.DataContext is YearMonthListViewModel vm)
+           {
+                vm.Year = _calendarMonthView.CurrentDate.Year;
+            }
+            BodyContent = _yearMonthListView;
+        }
+        private void NavigateToCalendarFromYearly(YearMonthViewModel monthVM)
+        {
+         if (monthVM == null) return;
+         var yearVM = _yearMonthListView.DataContext as YearMonthListViewModel;
+         NavigateToCalendar(new DateTime(yearVM.Year, monthVM.Month, 1));
+        }
+
+
+// ✅ 수정: 진행률 업데이트 시스템 설정
+private void SetupProgressUpdateSystem()
         {
             try
             {

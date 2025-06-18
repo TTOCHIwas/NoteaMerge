@@ -215,6 +215,7 @@ namespace Notea.Modules.Daily.ViewModels
 
         public void LoadDailyData(DateTime date)
         {
+            SelectedDate = date; // 선택된 날짜를 업데이트하는 코드 추가
             // 🆕 같은 날짜에 대한 중복 로딩 방지
             if (SelectedDate.Date == date.Date && _hasLoadedOnce)
             {
@@ -438,11 +439,30 @@ namespace Notea.Modules.Daily.ViewModels
             }
         }
 
-        // ✅ 우측 정보 영역 - 목표 관련 제거, 순수 측정 정보만
-        public string InfoTitle => IsToday ? "학습 시간" : "총 학습 시간";
-        public string InfoContent => IsToday ? TodayStudyTime : AllTimeStudyTime;
+        //  우측 정보 영역 Day 정보 표시 및 공부시간 표시
+        public string InfoTitle
+        {
+            get
+            {
+                if (!IsToday) return "총 학습 시간";
 
-        public bool IsToday => SelectedDate.Date == DateTime.Today;
+                var dday = _db.GetNextDDay();
+                return dday?.Title ?? "-"; // D-Day 이벤트가 있으면 제목, 없으면 "-"
+            }
+        }
+
+        public string InfoContent
+        {
+            get
+            {
+              if (!IsToday) return TodayStudyTime; // 다른 날짜일때는 해당 날짜의 총 공부시간
+        
+              var dday = _db.GetNextDDay();
+              return dday.HasValue ? $"D-{dday.Value.DaysLeft}" : "-"; // D-Day가 있으면 남은 날짜, 없으면 "-"
+            }
+        }
+
+public bool IsToday => SelectedDate.Date == DateTime.Today;
 
         private DateTime _selectedDate;
         public DateTime SelectedDate
@@ -456,10 +476,10 @@ namespace Notea.Modules.Daily.ViewModels
                     Comment = _db.GetCommentByDate(value);
 
                     // 날짜 변경 시 InfoTitle과 InfoContent도 업데이트
+                    OnPropertyChanged(nameof(IsToday));
                     OnPropertyChanged(nameof(InfoTitle));
                     OnPropertyChanged(nameof(InfoContent));
                     OnPropertyChanged(nameof(TodayStudyTime));
-                    OnPropertyChanged(nameof(AllTimeStudyTime));
 
                     // 🆕 날짜 변경 시 로드 플래그 리셋
                     _hasLoadedOnce = false;

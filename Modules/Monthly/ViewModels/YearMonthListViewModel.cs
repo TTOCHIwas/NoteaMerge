@@ -35,8 +35,9 @@ namespace Notea.Modules.Monthly.ViewModels
 
         public YearMonthListViewModel()
         {
-            Year = DateTime.Now.Year;
             Months = new ObservableCollection<YearMonthViewModel>();
+            Year = DateTime.Now.Year;
+            
             InitializeMonths();
             LoadMonthComments();
         }

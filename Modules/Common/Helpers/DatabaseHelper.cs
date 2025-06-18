@@ -434,14 +434,14 @@ namespace Notea.Modules.Common.Helpers
                     var cmd = conn.CreateCommand();
 
                     // ✅ 수정: 실제 테이블 구조에 맞게 쿼리 변경
-                    cmd.CommandText = "SELECT subJectId, title FROM subject ORDER BY title";
+                    cmd.CommandText = "SELECT subJectId, Name FROM Subject ORDER BY Name";
 
                     using var reader = cmd.ExecuteReader();
 
                     while (reader.Read())
                     {
                         var subjectId = Convert.ToInt32(reader["subJectId"]);  // ✅ 수정
-                        var subjectName = reader["title"].ToString();          // ✅ 수정
+                        var subjectName = reader["Name"].ToString();          // ✅ 수정
 
                         var subjectVM = new SubjectGroupViewModel
                         {
@@ -1773,38 +1773,40 @@ namespace Notea.Modules.Common.Helpers
             });
         }
 
-        public (DateTime? dday, int daysLeft) GetNextDDay()
+        public (string Title, int DaysLeft)? GetNextDDay()
         {
-            lock (_lockObject)
+            return ExecuteWithRetry(() =>
             {
-                try
+                // 1. 반환할 변수를 'null 가능한 튜플' 형식으로 명확하게 선언하고 null로 초기화합니다.
+                (string Title, int DaysLeft)? resultTuple = null;
+
+                lock (_lockObject)
                 {
                     using var conn = GetConnection();
                     conn.Open();
-
                     using var cmd = conn.CreateCommand();
                     cmd.CommandText = @"
-                SELECT startDate 
-                FROM monthlyEvent 
+                SELECT title, CAST(julianday(startDate) - julianday('now', 'localtime') AS INTEGER) as daysLeft
+                FROM monthlyEvent
                 WHERE isDday = 1 
-                  AND startDate > date('now')
-                ORDER BY startDate ASC 
+                  AND date(startDate) >= date('now', 'localtime')
+                ORDER BY startDate ASC
                 LIMIT 1";
 
-                    var result = cmd.ExecuteScalar();
-                    if (result != null && DateTime.TryParse(result.ToString(), out DateTime dDay))
+                    using var reader = cmd.ExecuteReader();
+                    if (reader.Read())
                     {
-                        int daysLeft = (dDay.Date - DateTime.Today).Days;
-                        return (dDay, daysLeft);
+                        // 2. D-Day를 찾았을 경우에만 변수에 실제 값을 할당합니다.
+                        resultTuple = (
+                            reader["title"].ToString(),
+                            Convert.ToInt32(reader["daysLeft"])
+                        );
                     }
-                    return (null, 0);
                 }
-                catch (Exception ex)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[DB] D-Day 조회 오류: {ex.Message}");
-                    return (null, 0);
-                }
-            }
+
+                // 3. 최종적으로 이 변수를 반환합니다. (D-Day가 없었다면 null이 반환됨)
+                return resultTuple;
+            });
         }
 
         public double GetSubjectProgressPercentage(string subjectName, DateTime date)

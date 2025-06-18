@@ -59,7 +59,13 @@
                        VerticalAlignment="Center"
                        TextAlignment="Center"
                        Style="{StaticResource ResourceKey=CalendarDayComment}"
-                       />
+                       Cursor="Hand">
+                <TextBlock.InputBindings>
+                    <MouseBinding MouseAction="LeftDoubleClick"
+                      Command="{Binding DataContext.NavigateToDailyViewForDateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                      CommandParameter="{Binding Date, RelativeSource={RelativeSource AncestorType=local:CalendarMonth}}"/>
+                </TextBlock.InputBindings>
+            </TextBlock>
             <Grid x:Name="Events" Grid.Row="0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*" />
