@@ -73,13 +73,13 @@ namespace Notea.Modules.Subject.Models
                 if (currentLevel <= 1) return null; // 최상위 레벨은 부모 없음
 
                 string query = @"
-                    SELECT categoryId 
-                    FROM category 
-                    WHERE subjectId = @subjectId 
-                      AND level < @currentLevel 
-                      AND displayOrder < @currentDisplayOrder
-                    ORDER BY displayOrder DESC 
-                    LIMIT 1";
+            SELECT categoryId 
+            FROM category 
+            WHERE subjectId = @subjectId 
+              AND level < @currentLevel 
+              AND displayOrder < @currentDisplayOrder
+            ORDER BY displayOrder DESC 
+            LIMIT 1";
 
                 using var conn = new SQLiteConnection(GetConnectionString());
                 conn.Open();
@@ -107,11 +107,11 @@ namespace Notea.Modules.Subject.Models
             try
             {
                 string query = @"
-                    SELECT categoryId 
-                    FROM category 
-                    WHERE subjectId = @subjectId AND displayOrder < @displayOrder
-                    ORDER BY displayOrder DESC 
-                    LIMIT 1";
+            SELECT categoryId 
+            FROM category 
+            WHERE subjectId = @subjectId AND displayOrder < @displayOrder
+            ORDER BY displayOrder DESC 
+            LIMIT 1";
 
                 using var conn = new SQLiteConnection(GetConnectionString());
                 conn.Open();
@@ -121,18 +121,12 @@ namespace Notea.Modules.Subject.Models
                 cmd.Parameters.AddWithValue("@displayOrder", displayOrder);
 
                 var result = cmd.ExecuteScalar();
-                if (result != null)
-                {
-                    return Convert.ToInt32(result);
-                }
-
-                // 이전 카테고리가 없으면 기본 카테고리 생성
-                return CreateDefaultCategory(subjectId);
+                return result != null ? Convert.ToInt32(result) : 1; // 기본 카테고리
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DB ERROR] FindNearestPreviousCategory 실패: {ex.Message}");
-                return CreateDefaultCategory(subjectId);
+                return 1; // 기본 카테고리
             }
         }
 
@@ -144,11 +138,11 @@ namespace Notea.Modules.Subject.Models
             try
             {
                 string query = @"
-                    SELECT categoryId 
-                    FROM category 
-                    WHERE subjectId = @subjectId AND displayOrder < @currentDisplayOrder
-                    ORDER BY displayOrder DESC 
-                    LIMIT 1";
+            SELECT categoryId 
+            FROM category 
+            WHERE subjectId = @subjectId AND displayOrder < @currentDisplayOrder
+            ORDER BY displayOrder DESC 
+            LIMIT 1";
 
                 using var conn = new SQLiteConnection(GetConnectionString());
                 conn.Open();
@@ -282,10 +276,10 @@ namespace Notea.Modules.Subject.Models
         /// </summary>
         public static void UpdateCategory(int categoryId, string content, Transaction transaction = null)
         {
-            if (categoryId <= 0) return;
-
             try
             {
+                string title = ExtractHeadingText(content);
+
                 SQLiteConnection conn;
                 SQLiteTransaction trans = null;
                 bool shouldDispose = false;
@@ -306,28 +300,25 @@ namespace Notea.Modules.Subject.Models
                 {
                     var cmd = conn.CreateCommand();
                     cmd.Transaction = trans;
-                    cmd.CommandText = @"
-                        UPDATE category 
-                        SET title = @title
-                        WHERE categoryId = @categoryId";
-
-                    cmd.Parameters.AddWithValue("@title", content);
+                    cmd.CommandText = "UPDATE category SET title = @title WHERE categoryId = @categoryId";
+                    cmd.Parameters.AddWithValue("@title", title);
                     cmd.Parameters.AddWithValue("@categoryId", categoryId);
 
                     int rowsAffected = cmd.ExecuteNonQuery();
-                    Debug.WriteLine($"[DB] 카테고리 업데이트 완료. CategoryId: {categoryId}");
+                    Debug.WriteLine($"[DB] 카테고리 업데이트: CategoryId={categoryId}, 제목='{title}', 영향받은 행={rowsAffected}");
                 }
                 finally
                 {
                     if (shouldDispose)
                     {
-                        conn.Dispose();
+                        conn?.Dispose();
                     }
                 }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DB ERROR] UpdateCategory 실패: {ex.Message}");
+                throw;
             }
         }
 
@@ -358,28 +349,25 @@ namespace Notea.Modules.Subject.Models
                 {
                     var cmd = conn.CreateCommand();
                     cmd.Transaction = trans;
-                    cmd.CommandText = @"
-                        UPDATE category 
-                        SET level = @level
-                        WHERE categoryId = @categoryId";
-
+                    cmd.CommandText = "UPDATE category SET level = @level WHERE categoryId = @categoryId";
                     cmd.Parameters.AddWithValue("@level", newLevel);
                     cmd.Parameters.AddWithValue("@categoryId", categoryId);
 
-                    cmd.ExecuteNonQuery();
-                    Debug.WriteLine($"[DB] 카테고리 레벨 업데이트: CategoryId={categoryId}, Level={newLevel}");
+                    int rowsAffected = cmd.ExecuteNonQuery();
+                    Debug.WriteLine($"[DB] 카테고리 레벨 업데이트: CategoryId={categoryId}, 새 레벨={newLevel}, 영향받은 행={rowsAffected}");
                 }
                 finally
                 {
                     if (shouldDispose)
                     {
-                        conn.Dispose();
+                        conn?.Dispose();
                     }
                 }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DB ERROR] UpdateCategoryLevel 실패: {ex.Message}");
+                throw;
             }
         }
 
@@ -410,28 +398,24 @@ namespace Notea.Modules.Subject.Models
                 {
                     var cmd = conn.CreateCommand();
                     cmd.Transaction = trans;
-                    cmd.CommandText = @"
-                        UPDATE category 
-                        SET displayOrder = @displayOrder
-                        WHERE categoryId = @categoryId";
-
+                    cmd.CommandText = "UPDATE category SET displayOrder = @displayOrder WHERE categoryId = @categoryId";
                     cmd.Parameters.AddWithValue("@displayOrder", displayOrder);
                     cmd.Parameters.AddWithValue("@categoryId", categoryId);
 
                     cmd.ExecuteNonQuery();
-                    Debug.WriteLine($"[DB] 카테고리 DisplayOrder 업데이트: CategoryId={categoryId}, DisplayOrder={displayOrder}");
                 }
                 finally
                 {
                     if (shouldDispose)
                     {
-                        conn.Dispose();
+                        conn?.Dispose();
                     }
                 }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DB ERROR] UpdateCategoryDisplayOrder 실패: {ex.Message}");
+                throw;
             }
         }
 
@@ -440,43 +424,66 @@ namespace Notea.Modules.Subject.Models
         /// </summary>
         public static void DeleteCategory(int categoryId, bool deleteTexts = true)
         {
-            if (categoryId <= 0)
-            {
-                Debug.WriteLine($"[WARNING] DeleteCategory 호출됐지만 CategoryId가 유효하지 않음: {categoryId}");
-                return;
-            }
-
             try
             {
-                using var conn = new SQLiteConnection(GetConnectionString());
-                conn.Open();
-
-                using var transaction = conn.BeginTransaction();
-
-                if (deleteTexts)
+                // 기본 카테고리(1)는 삭제하지 않음
+                if (categoryId <= 1)
                 {
-                    // 관련 noteContent도 삭제
-                    var deleteNotesCmd = conn.CreateCommand();
-                    deleteNotesCmd.Transaction = transaction;
-                    deleteNotesCmd.CommandText = "DELETE FROM noteContent WHERE categoryId = @categoryId";
-                    deleteNotesCmd.Parameters.AddWithValue("@categoryId", categoryId);
-                    int notesDeleted = deleteNotesCmd.ExecuteNonQuery();
-                    Debug.WriteLine($"[DB] 삭제된 노트: {notesDeleted}개");
+                    Debug.WriteLine("[WARNING] 기본 카테고리는 삭제할 수 없습니다.");
+                    return;
                 }
 
-                // 카테고리만 삭제
-                var deleteCategoryCmd = conn.CreateCommand();
-                deleteCategoryCmd.Transaction = transaction;
-                deleteCategoryCmd.CommandText = "DELETE FROM category WHERE categoryId = @categoryId";
-                deleteCategoryCmd.Parameters.AddWithValue("@categoryId", categoryId);
-                int categoryDeleted = deleteCategoryCmd.ExecuteNonQuery();
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+                using var transaction = conn.BeginTransaction();
 
-                transaction.Commit();
-                Debug.WriteLine($"[DB] 카테고리 삭제 완료. CategoryId: {categoryId}, 텍스트 삭제 여부: {deleteTexts}");
+                try
+                {
+                    if (deleteTexts)
+                    {
+                        // 해당 카테고리의 모든 텍스트 삭제
+                        var deleteTextsCmd = conn.CreateCommand();
+                        deleteTextsCmd.Transaction = transaction;
+                        deleteTextsCmd.CommandText = "DELETE FROM noteContent WHERE categoryId = @categoryId";
+                        deleteTextsCmd.Parameters.AddWithValue("@categoryId", categoryId);
+                        int deletedTexts = deleteTextsCmd.ExecuteNonQuery();
+                        Debug.WriteLine($"[DB] 카테고리 {categoryId}의 텍스트 {deletedTexts}개 삭제됨");
+                    }
+
+                    // 하위 카테고리들의 부모를 현재 카테고리의 부모로 변경
+                    var updateChildrenCmd = conn.CreateCommand();
+                    updateChildrenCmd.Transaction = transaction;
+                    updateChildrenCmd.CommandText = @"
+                UPDATE category 
+                SET parentCategoryId = (
+                    SELECT parentCategoryId FROM category WHERE categoryId = @categoryId
+                )
+                WHERE parentCategoryId = @categoryId";
+                    updateChildrenCmd.Parameters.AddWithValue("@categoryId", categoryId);
+                    int updatedChildren = updateChildrenCmd.ExecuteNonQuery();
+
+                    // 카테고리 삭제
+                    var deleteCategoryCmd = conn.CreateCommand();
+                    deleteCategoryCmd.Transaction = transaction;
+                    deleteCategoryCmd.CommandText = "DELETE FROM category WHERE categoryId = @categoryId";
+                    deleteCategoryCmd.Parameters.AddWithValue("@categoryId", categoryId);
+                    int deletedCategory = deleteCategoryCmd.ExecuteNonQuery();
+
+                    transaction.Commit();
+
+                    Debug.WriteLine($"[DB] 카테고리 삭제 완료: CategoryId={categoryId}, 하위 카테고리 재할당={updatedChildren}개");
+                }
+                catch (Exception ex)
+                {
+                    transaction.Rollback();
+                    Debug.WriteLine($"[DB ERROR] 카테고리 삭제 실패 (롤백됨): {ex.Message}");
+                    throw;
+                }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DB ERROR] DeleteCategory 실패: {ex.Message}");
+                throw;
             }
         }
 
@@ -753,13 +760,20 @@ namespace Notea.Modules.Subject.Models
         {
             try
             {
-                string query = $"DELETE FROM noteContent WHERE textId = {textId}";
-                int rowsAffected = Notea.Helpers.DatabaseHelper.ExecuteNonQuery(query);
-                Debug.WriteLine($"[DB] 라인 삭제 완료. TextId: {textId}, 영향받은 행: {rowsAffected}");
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+
+                var cmd = conn.CreateCommand();
+                cmd.CommandText = "DELETE FROM noteContent WHERE textId = @textId";
+                cmd.Parameters.AddWithValue("@textId", textId);
+
+                int rowsAffected = cmd.ExecuteNonQuery();
+                Debug.WriteLine($"[DB] 라인 삭제 완료: TextId: {textId}, 영향받은 행: {rowsAffected}");
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DB ERROR] DeleteLine 실패: {ex.Message}");
+                throw;
             }
         }
 
@@ -796,10 +810,10 @@ namespace Notea.Modules.Subject.Models
                     var categoriesCmd = conn.CreateCommand();
                     categoriesCmd.Transaction = trans;
                     categoriesCmd.CommandText = @"
-                        SELECT categoryId, level, displayOrder, title
-                        FROM category 
-                        WHERE subjectId = @subjectId AND displayOrder > @fromDisplayOrder
-                        ORDER BY displayOrder";
+                SELECT categoryId, level, displayOrder, title
+                FROM category 
+                WHERE subjectId = @subjectId AND displayOrder > @fromDisplayOrder
+                ORDER BY displayOrder";
 
                     categoriesCmd.Parameters.AddWithValue("@subjectId", subjectId);
                     categoriesCmd.Parameters.AddWithValue("@fromDisplayOrder", fromDisplayOrder);
@@ -824,33 +838,29 @@ namespace Notea.Modules.Subject.Models
 
                         var updateCmd = conn.CreateCommand();
                         updateCmd.Transaction = trans;
-                        updateCmd.CommandText = @"
-                            UPDATE category 
-                            SET parentCategoryId = @parentId 
-                            WHERE categoryId = @categoryId";
-
-                        updateCmd.Parameters.AddWithValue("@parentId", newParentId ?? (object)DBNull.Value);
+                        updateCmd.CommandText = "UPDATE category SET parentCategoryId = @parentId WHERE categoryId = @categoryId";
+                        updateCmd.Parameters.AddWithValue("@parentId", (object)newParentId ?? DBNull.Value);
                         updateCmd.Parameters.AddWithValue("@categoryId", category.CategoryId);
+
                         updateCmd.ExecuteNonQuery();
 
-                        Debug.WriteLine($"[DB] 카테고리 '{category.Title}' 부모 업데이트: {newParentId}");
+                        Debug.WriteLine($"[DB] 카테고리 부모 관계 업데이트: CategoryId={category.CategoryId}, 새 부모={newParentId}");
                     }
 
-                    // 3. 영향받는 텍스트들의 CategoryId 업데이트
-                    UpdateTextCategoriesAfterHierarchyChange(subjectId, fromDisplayOrder, trans);
-
+                    Debug.WriteLine($"[DB] 계층 구조 업데이트 완료: {categories.Count}개 카테고리 처리됨");
                 }
                 finally
                 {
                     if (shouldDispose)
                     {
-                        conn.Dispose();
+                        conn?.Dispose();
                     }
                 }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DB ERROR] UpdateSubsequentCategoryHierarchy 실패: {ex.Message}");
+                throw;
             }
         }
 
@@ -1070,7 +1080,7 @@ namespace Notea.Modules.Subject.Models
                             Title = element.Content,
                             DisplayOrder = element.DisplayOrder,
                             Level = element.Level,
-                            ParentCategoryId = element.ParentId,
+                            ParentCategoryId = (int)element.ParentId,
                             Lines = new List<NoteLine>(),
                             SubCategories = new List<NoteCategory>()
                         };
@@ -1317,25 +1327,44 @@ namespace Notea.Modules.Subject.Models
         /// </summary>
         public static void ReassignTextsToCategory(int fromCategoryId, int toCategoryId)
         {
-            if (fromCategoryId <= 0 || toCategoryId <= 0)
-            {
-                Debug.WriteLine($"[WARNING] ReassignTextsToCategory - 유효하지 않은 CategoryId: from={fromCategoryId}, to={toCategoryId}");
-                return;
-            }
-
             try
             {
-                string query = $@"
-                    UPDATE noteContent 
-                    SET categoryId = {toCategoryId}
-                    WHERE categoryId = {fromCategoryId}";
+                if (fromCategoryId == toCategoryId) return;
 
-                int rowsAffected = Notea.Helpers.DatabaseHelper.ExecuteNonQuery(query);
-                Debug.WriteLine($"[DB] 텍스트 재할당 완료. {fromCategoryId} -> {toCategoryId}, 영향받은 행: {rowsAffected}");
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+                using var transaction = conn.BeginTransaction();
+
+                try
+                {
+                    // noteContent 테이블의 텍스트들 재할당
+                    var updateTextsCmd = conn.CreateCommand();
+                    updateTextsCmd.Transaction = transaction;
+                    updateTextsCmd.CommandText = @"
+                UPDATE noteContent 
+                SET categoryId = @toCategoryId 
+                WHERE categoryId = @fromCategoryId";
+
+                    updateTextsCmd.Parameters.AddWithValue("@toCategoryId", toCategoryId);
+                    updateTextsCmd.Parameters.AddWithValue("@fromCategoryId", fromCategoryId);
+
+                    int affectedRows = updateTextsCmd.ExecuteNonQuery();
+
+                    transaction.Commit();
+
+                    Debug.WriteLine($"[DB] 텍스트 재할당 완료: {fromCategoryId} → {toCategoryId}, 영향받은 행: {affectedRows}");
+                }
+                catch (Exception ex)
+                {
+                    transaction.Rollback();
+                    Debug.WriteLine($"[DB ERROR] 텍스트 재할당 실패 (롤백됨): {ex.Message}");
+                    throw;
+                }
             }
             catch (Exception ex)
             {
                 Debug.WriteLine($"[DB ERROR] ReassignTextsToCategory 실패: {ex.Message}");
+                throw;
             }
         }
 

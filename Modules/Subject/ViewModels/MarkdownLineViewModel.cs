@@ -339,45 +339,77 @@ namespace Notea.Modules.Subject.ViewModels
 
         private void OnHeadingStatusChanged(bool wasHeading, bool isHeading)
         {
-            if (wasHeading && !isHeading)
+            try
             {
-                Debug.WriteLine($"[DEBUG] 제목에서 일반 텍스트로 변경됨: {Content}");
-
-                // 카테고리 삭제 전에 이전 카테고리 찾기
-                int previousCategoryId = FindPreviousCategoryId();
-
-                if (previousCategoryId > 0)
+                if (wasHeading && !isHeading)
                 {
-                    // 현재 카테고리에 속한 텍스트들을 이전 카테고리로 이동
-                    NoteRepository.ReassignTextsToCategory(this.CategoryId, previousCategoryId);
+                    // 제목에서 일반 텍스트로 변경
+                    Debug.WriteLine($"[DEBUG] 제목에서 일반 텍스트로 변경됨: {Content}");
+
+                    // 기본 카테고리(1)인 경우 삭제하지 않음
+                    if (CategoryId <= 1)
+                    {
+                        Debug.WriteLine("[WARNING] 기본 카테고리는 삭제할 수 없습니다. 텍스트로만 변경됩니다.");
+                        IsHeadingLine = false;
+                        Level = 0;
+                        TextId = 0; // 새로운 텍스트로 생성되도록
+                        return;
+                    }
+
+                    // 이전 카테고리 찾기
+                    int previousCategoryId = FindPreviousCategoryId();
+
+                    if (previousCategoryId > 0)
+                    {
+                        // 현재 카테고리에 속한 텍스트들을 이전 카테고리로 이동
+                        NoteRepository.ReassignTextsToCategory(this.CategoryId, previousCategoryId);
+                    }
+
+                    // 카테고리 삭제
+                    NoteRepository.DeleteCategory(this.CategoryId);
+
+                    // 현재 라인을 일반 텍스트로 변환
+                    CategoryId = previousCategoryId > 0 ? previousCategoryId : 1;
+                    TextId = 0; // 새로운 텍스트로 생성되도록
+                    Level = 0;
+                    IsHeadingLine = false;
+
+                    Debug.WriteLine($"[DEBUG] 제목→텍스트 변환 완료. 새 CategoryId: {CategoryId}");
                 }
+                else if (!wasHeading && isHeading)
+                {
+                    // 일반 텍스트에서 제목으로 변경
+                    Debug.WriteLine($"[DEBUG] 일반 텍스트에서 제목으로 변경됨: {Content}");
 
-                // 카테고리 삭제 (이제 텍스트들은 안전하게 재할당됨)
-                NoteRepository.DeleteCategory(this.CategoryId);
+                    // 기존 텍스트 삭제
+                    if (TextId > 0)
+                    {
+                        NoteRepository.DeleteLine(TextId);
+                        TextId = 0;
+                    }
 
-                // 현재 라인을 일반 텍스트로 변환
-                CategoryId = previousCategoryId > 0 ? previousCategoryId : 1;
-                TextId = 0; // 새로운 텍스트로 저장될 것임
+                    // 새 카테고리 생성 준비
+                    Level = NoteRepository.GetHeadingLevel(Content);
+                    CategoryId = 0; // 새로운 카테고리로 생성되도록 (저장 시점에 처리)
+                    IsHeadingLine = true;
+
+                    // ❌ CategoryCreated 이벤트 제거 - 현재 프로젝트에서는 사용하지 않음
+                    // 대신 저장 시점에 NoteEditorViewModel에서 처리
+
+                    Debug.WriteLine($"[DEBUG] 텍스트→제목 변환 완료. Level: {Level}");
+                }
             }
-            else if (!wasHeading && isHeading)
+            catch (Exception ex)
             {
-                Debug.WriteLine($"[DEBUG] 일반 텍스트에서 제목으로 변경됨: {Content}");
-
-                // 기존 텍스트 라인 삭제
-                if (this.TextId > 0)
-                {
-                    NoteRepository.DeleteLine(this.TextId);
-                }
-
-                CategoryId = 0; // 새로운 카테고리로 저장될 것임
-                TextId = 0;
+                Debug.WriteLine($"[ERROR] OnHeadingStatusChanged 실패: {ex.Message}");
+                throw;
             }
         }
 
         private int FindPreviousCategoryId()
         {
             var args = new FindPreviousCategoryEventArgs { CurrentLine = this };
-            OnRequestFindPreviousCategory(args);
+            RequestFindPreviousCategory?.Invoke(this, args);
             return args.PreviousCategoryId;
         }
 
