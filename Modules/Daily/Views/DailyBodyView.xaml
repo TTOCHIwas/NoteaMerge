@@ -147,7 +147,7 @@
                     <RowDefinition Height="*"/>
                 </Grid.RowDefinitions>
 
-                <Border Background="#DDDDDD" Padding="12, 20, 12, 20">
+                <Border Background="#DDDDDD" Padding="12, 20">
                     <Border.Style>
                         <Style TargetType="Border">
                             <Setter Property="Visibility" Value="Visible"/>
@@ -163,11 +163,11 @@
                     </Border.InputBindings>
                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
                         <svgc:SvgViewbox Source="/Resources/Images/add_todo.svg" Width="18" Height="18" Margin="20,0"/>
-                        <TextBlock Text="추가" FontWeight="SemiBold" FontSize="16" VerticalAlignment="Center"/>
+                        <TextBlock Text="추가" Style="{StaticResource addSubjectStyle}" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Border>
 
-                <Border Background="#DDDDDD" Padding="16, 24, 16, 24">
+                <Border Background="#DDDDDD" Padding="16, 24">
                     <Border.Style>
                         <Style TargetType="Border">
                             <Setter Property="Visibility" Value="Collapsed"/>
@@ -184,7 +184,7 @@
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
                         <svgc:SvgViewbox Grid.Column="0" Source="/Resources/Images/check_default.svg" Width="18" Height="18" Margin="20,0"/>
-                        <TextBox x:Name="TodoAddBox" Grid.Column="1" BorderThickness="0" Background="Transparent" FontSize="16" FontFamily="Pretendard"
+                        <TextBox x:Name="TodoAddBox" Grid.Column="1" BorderThickness="0" Background="Transparent" FontSize="16" FontWeight="SemiBold" FontFamily="Pretendard"
                                  Foreground="#555555" VerticalContentAlignment="Center" Text="{Binding NewTodoText, UpdateSourceTrigger=PropertyChanged}"
                                  IsVisibleChanged="TodoAddBox_IsVisibleChanged">
                             <TextBox.InputBindings>
