@@ -33,6 +33,17 @@ namespace Notea.ViewModels
         private readonly SubjectListPageHeaderView _subjectHeaderView;
         private readonly SubjectListPageBodyView _subjectBodyView;
 
+        // 필기 화면용 View와 ViewModel 추가 (기존 멤버 변수 섹션에)
+        private Notea.Modules.Subject.Views.NotePageView _notePageView;
+        private Notea.Modules.Subject.ViewModels.NotePageViewModel _notePageVM;
+
+        // 현재 선택된 과목 정보
+        private string _currentSelectedSubject;
+        private int _currentSelectedSubjectId;
+
+        public ICommand NavigateToNoteEditorCommand { get; }
+        public ICommand NavigateBackToSubjectListCommand { get; }
+
         // 🆕 공유 데이터 소스 - 두 페이지에서 모두 사용 (실제 측정 시간만)
         public ObservableCollection<SubjectProgressViewModel> SharedSubjectProgress { get; set; }
 
@@ -146,18 +157,117 @@ namespace Notea.ViewModels
             ExpandSidebarCommand = new RelayCommand(() => LeftSidebarWidth = new GridLength(280));
             NavigateToSubjectListCommand = new RelayCommand(NavigateToSubjectList);
             NavigateToTodayCommand = new RelayCommand(NavigateToToday);
+            NavigateToNoteEditorCommand = new RelayCommand<object>(NavigateToNoteEditor);
+            NavigateBackToSubjectListCommand = new RelayCommand(NavigateBackToSubjectList);
+
+
 
             try
             {
+
                 RestoreDailySubjects();
 
                 SetupProgressUpdateSystem();
 
-                System.Diagnostics.Debug.WriteLine("[MainViewModel] Phase 3 초기화 완료 - 전체 시스템 활성화");
+                
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] 초기화 오류: {ex.Message}");
+            }
+        }
+
+        private void NavigateToNoteEditor(object parameter)
+        {
+            try
+            {
+                string subjectName = null;
+                int subjectId = 0;
+
+                // 파라미터에서 과목 정보 추출
+                if (parameter is SubjectGroupViewModel subjectGroup)
+                {
+                    subjectName = subjectGroup.SubjectName;
+                    subjectId = subjectGroup.SubjectId;
+                }
+                else if (parameter is SubjectProgressViewModel subjectProgress)
+                {
+                    subjectName = subjectProgress.SubjectName;
+                    // SubjectId 조회
+                    subjectId = GetSubjectIdByName(subjectName);
+                }
+                else if (parameter is string name)
+                {
+                    subjectName = name;
+                    subjectId = GetSubjectIdByName(subjectName);
+                }
+
+                if (string.IsNullOrEmpty(subjectName) || subjectId <= 0)
+                {
+                    System.Diagnostics.Debug.WriteLine("[MainViewModel] 유효하지 않은 과목 정보");
+                    return;
+                }
+
+                _currentSelectedSubject = subjectName;
+                _currentSelectedSubjectId = subjectId;
+
+                // 필기 화면용 ViewModel과 View 생성
+                _notePageVM = new Notea.Modules.Subject.ViewModels.NotePageViewModel();
+                _notePageView = new Notea.Modules.Subject.Views.NotePageView { DataContext = _notePageVM };
+
+                // 과목 정보 설정
+                _notePageVM.SetSubject(subjectId, subjectName);
+
+                // 필기 화면으로 전환
+                HeaderContent = null; // 헤더 없음
+                BodyContent = _notePageView;
+
+                // 왼쪽 사이드바를 "오늘 할 일" 모드로 변경
+                SidebarViewModel.SetContext("today");
+                SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
+
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목 '{subjectName}' 필기 화면으로 이동");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 필기 화면 이동 오류: {ex.Message}");
+            }
+        }
+
+        private void NavigateBackToSubjectList()
+        {
+            try
+            {
+                // 필기 내용 저장
+                if (_notePageVM != null)
+                {
+                    _notePageVM.SaveChanges();
+                }
+
+                // 과목 목록 화면으로 복귀
+                HeaderContent = _subjectHeaderView;
+                BodyContent = _subjectBodyView;
+                SidebarViewModel.SetContext("today");
+                SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
+
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록으로 돌아감");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목 목록 돌아가기 오류: {ex.Message}");
+            }
+        }
+
+        private int GetSubjectIdByName(string subjectName)
+        {
+            try
+            {
+                return Notea.Modules.Subject.Models.NoteRepository.GetSubjectIdByName(subjectName);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] SubjectId 조회 오류: {ex.Message}");
+                return 0;
             }
         }
 

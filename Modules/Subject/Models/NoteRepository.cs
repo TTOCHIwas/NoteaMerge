@@ -1202,24 +1202,28 @@ namespace Notea.Modules.Subject.Models
                     return;
                 }
 
-                // 2. 기본 카테고리 확인
-                string checkQuery = $"SELECT COUNT(*) as count FROM category WHERE categoryId = 1 AND subjectId = {subjectId}";
+                // 2. 해당 과목에 대한 기본 카테고리 확인
+                string checkQuery = $"SELECT COUNT(*) as count FROM category WHERE subjectId = {subjectId}";
                 var result = DatabaseHelper.ExecuteSelect(checkQuery);
 
                 if (result.Rows.Count > 0 && Convert.ToInt32(result.Rows[0]["count"]) == 0)
                 {
                     // 3. time 테이블에 기본 레코드 추가
                     string timeQuery = $@"
-                        INSERT INTO time (createdDate, lastModifiedDate) 
-                        VALUES ('{DateTime.Now:yyyy-MM-dd HH:mm:ss}', '{DateTime.Now:yyyy-MM-dd HH:mm:ss}')";
+                INSERT INTO time (createdDate, lastModifiedDate) 
+                VALUES ('{DateTime.Now:yyyy-MM-dd HH:mm:ss}', '{DateTime.Now:yyyy-MM-dd HH:mm:ss}')";
                     DatabaseHelper.ExecuteNonQuery(timeQuery);
 
-                    // 4. 기본 카테고리 생성
+                    // 4. 해당 과목에 대한 기본 카테고리 생성 (categoryId는 자동 증가)
                     string insertQuery = $@"
-                        INSERT INTO category (categoryId, title, subjectId, timeId, displayOrder, level) 
-                        VALUES (1, ' ', {subjectId}, 1, 0, 1)";
+                INSERT INTO category (title, subjectId, timeId, displayOrder, level) 
+                VALUES (' ', {subjectId}, 1, 0, 1)";
                     DatabaseHelper.ExecuteNonQuery(insertQuery);
                     Debug.WriteLine($"[NoteRepository] 기본 카테고리 생성: SubjectId={subjectId}");
+                }
+                else
+                {
+                    Debug.WriteLine($"[NoteRepository] SubjectId {subjectId}에 이미 카테고리 존재함");
                 }
             }
             catch (Exception ex)

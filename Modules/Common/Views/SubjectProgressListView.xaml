@@ -23,7 +23,10 @@
                         <DataTemplate>
                             <StackPanel Margin="0,0,0,15">
                                 <!-- 과목 헤더 - 기존 구조에 진행률 정보만 추가 -->
-                                <Grid Height="60" Margin="0,5">
+                                <Grid Height="60" Margin="0,5"
+                                      MouseLeftButtonDown="SubjectName_MouseLeftButtonDown"
+                                      MouseMove="SubjectName_MouseMove"
+                                      MouseLeftButtonUp="SubjectProgressItem_MouseLeftButtonUp">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <!-- 과목명 -->

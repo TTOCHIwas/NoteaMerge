@@ -17,16 +17,8 @@ namespace Notea;
 
             try
             {
-                // ✅ 통합된 데이터베이스 초기화만 호출 (중복 제거)
                 DatabaseInitializer.InitializeDatabase();
-
-                // 🚨 제거: EnsureRuntimeSchemaComplete() 호출 삭제
-                // EnsureRuntimeSchemaComplete(); // 이 줄 완전 삭제
-
-                // ✅ 기본 카테고리 확인 (필기 시스템용)
-                Notea.Modules.Subject.Models.NoteRepository.EnsureDefaultCategory(1);
-
-                // ✅ 이미지 저장 폴더 생성
+                EnsureDefaultCategoriesForAllSubjects();
                 CreateImageFolder();
 
                 System.Diagnostics.Debug.WriteLine("[APP] 애플리케이션 초기화 완료");
@@ -47,7 +39,22 @@ namespace Notea;
             }
         }
 
-        private void CreateImageFolder()
+    private void EnsureDefaultCategoriesForAllSubjects()
+    {
+        try
+        {
+            var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+            var subjects = dbHelper.LoadSubjectsWithGroups();
+
+            System.Diagnostics.Debug.WriteLine($"[APP] {subjects.Count}개 과목에 대해 기본 카테고리 확인 완료");
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"[APP ERROR] 기본 카테고리 확인 실패: {ex.Message}");
+        }
+    }
+
+    private void CreateImageFolder()
         {
             try
             {

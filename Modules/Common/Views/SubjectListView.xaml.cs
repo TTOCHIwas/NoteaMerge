@@ -14,6 +14,8 @@ namespace Notea.Modules.Common.Views
     {
         private Point _startPoint;
         private bool _isDragging = false;
+        private DateTime _lastClickTime = DateTime.MinValue;
+        private const int DoubleClickInterval = 500;
 
         public SubjectListView()
         {

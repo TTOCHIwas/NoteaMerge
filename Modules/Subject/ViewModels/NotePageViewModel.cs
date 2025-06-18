@@ -1,6 +1,9 @@
 ﻿using Notea.Modules.Subject.Models;
+using Notea.ViewModels;
 using System;
 using System.ComponentModel;
+using System.Windows;
+using System.Windows.Input;
 
 namespace Notea.Modules.Subject.ViewModels
 {
@@ -9,6 +12,7 @@ namespace Notea.Modules.Subject.ViewModels
         private NoteEditorViewModel _editorViewModel;
         private SearchViewModel _searchViewModel;
         private string _subjectTitle;
+        public ICommand NavigateBackCommand { get; }
 
         public NoteEditorViewModel EditorViewModel
         {
@@ -42,8 +46,31 @@ namespace Notea.Modules.Subject.ViewModels
 
         public NotePageViewModel()
         {
-            SubjectTitle = "윈도우즈 프로그래밍";
-            LoadNote(1);
+            SubjectTitle = "";
+            NavigateBackCommand = new RelayCommand(NavigateBack);
+        }
+
+        private void NavigateBack()
+        {
+            try
+            {
+                // 변경사항 저장
+                SaveChanges();
+
+                // MainViewModel의 뒤로가기 명령 실행
+                var mainWindow = Application.Current.MainWindow;
+                if (mainWindow?.DataContext is MainViewModel mainViewModel)
+                {
+                    if (mainViewModel.NavigateBackToSubjectListCommand.CanExecute(null))
+                    {
+                        mainViewModel.NavigateBackToSubjectListCommand.Execute(null);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] 뒤로가기 오류: {ex.Message}");
+            }
         }
 
         private void LoadNote(int subjectId)
@@ -66,10 +93,37 @@ namespace Notea.Modules.Subject.ViewModels
             SearchViewModel.SearchHighlightRequested += OnSearchHighlightRequested;
         }
 
+        public void SetSubject(int subjectId, string subjectName)
+        {
+            try
+            {
+                SubjectTitle = subjectName;
+
+                // 새로운 과목 데이터로 EditorViewModel과 SearchViewModel 다시 로드
+                LoadNote(subjectId);
+
+                System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] 과목 설정: {subjectName} (ID: {subjectId})");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] 과목 설정 오류: {ex.Message}");
+            }
+        }
+
+
+
         // View가 닫힐 때 호출
         public void SaveChanges()
         {
-            EditorViewModel?.OnViewClosing();
+            try
+            {
+                EditorViewModel?.OnViewClosing();
+                System.Diagnostics.Debug.WriteLine("[NotePageViewModel] 변경사항 저장 완료");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] 저장 오류: {ex.Message}");
+            }
         }
 
         private void OnSearchHighlightRequested(object sender, SearchHighlightEventArgs e)

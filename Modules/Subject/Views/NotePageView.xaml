@@ -22,14 +22,31 @@
             <RowDefinition Height="auto"/>
         </Grid.RowDefinitions>
 
-        <!-- 과목 제목 -->
-        <TextBox Grid.Row="0"
-                 Style="{StaticResource tboxTitleStyle}"
-                 Text="{Binding SubjectTitle}"
-                 HorizontalAlignment="Left"
-                 VerticalAlignment="Center"
-                 Margin="20, 0"
-                 Background="Transparent" />
+        <Grid Grid.Row="0" VerticalAlignment="Center">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="auto"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- 과목 제목 -->
+            <TextBox Grid.Column="0"
+                     Style="{StaticResource tboxTitleStyle}"
+                     Text="{Binding SubjectTitle}"
+                     HorizontalAlignment="Left"
+                     VerticalAlignment="Center"
+                     Margin="20, 0"
+                     Background="Transparent" />
+
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Background="Transparent">
+                <Button Content="← 과목 목록" 
+                        Style="{StaticResource backButtonStyle}"
+                        Command="{Binding NavigateBackCommand}"
+                        FontSize="14"
+                        />
+            </StackPanel>
+        </Grid>
+
+        
 
         <!-- 상단 선 -->
         <Rectangle Grid.Row="1" Height="1" Fill="{StaticResource black}" HorizontalAlignment="Stretch"/>

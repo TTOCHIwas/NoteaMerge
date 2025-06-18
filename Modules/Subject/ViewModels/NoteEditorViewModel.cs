@@ -80,9 +80,6 @@ namespace Notea.Modules.Subject.ViewModels
 
             Debug.WriteLine($"[LOAD] NoteEditorViewModel 생성 시작. 카테고리 수: {loadedNotes?.Count ?? 0}");
 
-            // 기본 카테고리 확인
-            NoteRepository.EnsureDefaultCategory(SubjectId);
-
             if (loadedNotes != null && loadedNotes.Count > 0)
             {
                 // 재귀적으로 카테고리와 라인 추가

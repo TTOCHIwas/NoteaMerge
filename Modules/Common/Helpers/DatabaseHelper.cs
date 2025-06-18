@@ -608,7 +608,7 @@ namespace Notea.Modules.Common.Helpers
 
                     var cmd = conn.CreateCommand();
                     // ✅ 수정: 최신 순으로 정렬 (createdDate 내림차순)
-                    cmd.CommandText = "SELECT subjectId, Name FROM Subject ORDER BY createdDate DESC";
+                    cmd.CommandText = "SELECT subjectId, Name FROM Subject ORDER BY createdDate ASC";
 
                     using var reader = cmd.ExecuteReader();
                     while (reader.Read())
@@ -1131,7 +1131,12 @@ namespace Notea.Modules.Common.Helpers
 
                         // 과목 정보 조회
                         using var subjectCmd = conn.CreateCommand();
-                        subjectCmd.CommandText = "SELECT SubjectName, Progress, StudyTimeSeconds FROM DailySubject WHERE Date = @date ORDER BY DisplayOrder";
+                        subjectCmd.CommandText = @"
+                                SELECT ds.SubjectName, ds.Progress, ds.StudyTimeSeconds 
+                                FROM DailySubject ds
+                                INNER JOIN Subject s ON ds.SubjectName = s.Name
+                                WHERE ds.Date = @date 
+                                ORDER BY s.createdDate ASC";
                         subjectCmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
 
                         var subjects = new List<(string, double, int)>();
@@ -1158,7 +1163,7 @@ namespace Notea.Modules.Common.Helpers
                                COALESCE(c.categoryId, 0) as CategoryId
                         FROM DailyTopicGroup dtg
                         LEFT JOIN category c ON c.title = dtg.GroupTitle 
-                                             AND c.subJectId = (SELECT subJectId FROM subject WHERE title = @subjectName)
+                     AND c.subjectId = (SELECT subjectId FROM Subject WHERE Name = @subjectName)
                         WHERE dtg.Date = @date AND dtg.SubjectName = @subjectName";
 
                             groupCmd.Parameters.AddWithValue("@date", date.ToString("yyyy-MM-dd"));
