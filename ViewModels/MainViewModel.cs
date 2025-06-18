@@ -164,8 +164,12 @@ private UserControl _headerContent;
             _dailyBodyView = new DailyBodyView { DataContext = _dailyBodyVM };
             _subjectHeaderView = new SubjectListPageHeaderView();
             _subjectBodyView = new SubjectListPageBodyView { DataContext = _subjectListPageVM };
-            _calendarMonthView = new CalendarMonth { DataContext =_calendarMonthView};
-            _yearMonthListView = new YearMonthListView { DataContext = _yearMonthListVM };
+
+            // ✅ 수정: CalendarMonth에 올바른 ViewModel 연결
+            _calendarMonthView = new CalendarMonth { DataContext = _monthlyPlanVM };
+
+            // ✅ 수정: YearMonthListView DataContext 제거 (생성자에서 이미 설정됨)
+            _yearMonthListView = new YearMonthListView();
 
             // 초기 화면 설정 (Daily 화면)
             HeaderContent = _dailyHeaderView;

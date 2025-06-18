@@ -63,7 +63,7 @@
                 <TextBlock.InputBindings>
                     <MouseBinding MouseAction="LeftDoubleClick"
                       Command="{Binding DataContext.NavigateToDailyViewForDateCommand, RelativeSource={RelativeSource AncestorType=Window}}"
-                      CommandParameter="{Binding Date, RelativeSource={RelativeSource AncestorType=local:CalendarMonth}}"/>
+                  CommandParameter="{Binding Date, RelativeSource={RelativeSource AncestorType=UserControl}}"/>
                 </TextBlock.InputBindings>
             </TextBlock>
             <Grid x:Name="Events" Grid.Row="0">
