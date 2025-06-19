@@ -30,14 +30,10 @@
                                       MouseLeftButtonUp="SubjectProgressItem_MouseLeftButtonUp">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
-                                        <!-- 과목명 -->
                                         <ColumnDefinition Width="auto"/>
-                                        <!-- 진행률바 컨테이너 -->
                                         <ColumnDefinition Width="auto"/>
-                                        <!-- ✅ 새로 추가: 진행률 퍼센트 -->
                                     </Grid.ColumnDefinitions>
 
-                                    <!-- 과목명 영역 - 시간 정보 추가 -->
                                     <StackPanel Grid.Column="0" VerticalAlignment="Center" Margin="20">
                                         <TextBlock Text="{Binding SubjectName}" 
                                                    Style="{StaticResource subjectTitleStyle}"
