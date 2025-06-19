@@ -22,7 +22,7 @@ namespace Notea.Modules.Monthly.Views
         public YearMonthListView()
         {
             InitializeComponent();
-            DataContext = new YearMonthListViewModel();
+           DataContext = new YearMonthListViewModel();
         }
     }
 }

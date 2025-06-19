@@ -52,9 +52,8 @@ namespace Notea.Modules.Daily.Views
             }
             else
             {
-                // 포커스 다른 곳으로 넘겨 점선 테두리 제거
-                FocusManager.SetFocusedElement(FocusManager.GetFocusScope(TodoAddBox), null);
-                Keyboard.ClearFocus();
+                // 포커스를 없애는 대신, 부모 Window로 되돌립니다.
+                Window.GetWindow(this)?.Focus();
             }
         }
 
@@ -63,7 +62,7 @@ namespace Notea.Modules.Daily.Views
             if (e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.None)
             {
                 // Window로 포커스 이동 (점선 없음)
-                Keyboard.ClearFocus();
+                Window.GetWindow(this)?.Focus();
                 e.Handled = true;
             }
         }
@@ -89,6 +88,21 @@ namespace Notea.Modules.Daily.Views
             else
             {
                 System.Diagnostics.Debug.WriteLine("[Todo] MenuItem이나 Tag(TodoItem)를 찾을 수 없습니다.");
+            }
+        }
+        private void TodoAddBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            // 눌린 키가 ESC 키인지 확인합니다.
+            if (e.Key == Key.Escape)
+            {
+                // DataContext를 ViewModel로 가져옵니다.
+                if (this.DataContext is DailyBodyViewModel vm)
+                {
+                    // IsAdding 상태를 false로 변경하여 입력창을 숨깁니다.
+                    vm.IsAdding = false;
+                }
+                // 다른 컨트롤로 이벤트가 전파되지 않도록 처리 완료로 표시합니다.
+                e.Handled = true;
             }
         }
     }

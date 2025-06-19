@@ -2,8 +2,6 @@
 using System.Windows.Input;
 using Notea.Modules.Subjects.Models;
 using Notea.ViewModels;
-using Notea.Modules.Subjects.Models;
-using Notea.Modules.Common.ViewModels;
 
 namespace Notea.Modules.Subjects.ViewModels
 {

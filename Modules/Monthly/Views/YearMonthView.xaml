@@ -6,7 +6,12 @@
       xmlns:local="clr-namespace:Notea.Modules.Monthly.Views"
       mc:Ignorable="d">
 
-    <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center" Margin="20">
+    <Grid HorizontalAlignment="Stretch" VerticalAlignment="Center" Margin="20" Cursor="Hand">
+        <Grid.InputBindings>
+            <MouseBinding MouseAction="LeftClick"
+                          Command="{Binding DataContext.NavigateToCalendarFromYearlyCommand, RelativeSource={RelativeSource AncestorType=Window}}"
+                          CommandParameter="{Binding}"/>
+        </Grid.InputBindings>
         <Grid.ColumnDefinitions>
             <ColumnDefinition Width="*"/>
             <ColumnDefinition Width="2*"/>
@@ -22,8 +27,7 @@
         <TextBlock Grid.Column="1"
                    HorizontalAlignment="Center"
                    VerticalAlignment="Center"
-                   Style="{StaticResource CalendarDayComment}"
-                   x:Name="MonthlyComment"
-                   Text="{Binding Comment}"/>
+                   Style="{StaticResource monthComment}"
+                   x:Name="MonthlyComment"/>
     </Grid>
 </UserControl>

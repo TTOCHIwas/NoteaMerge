@@ -89,6 +89,44 @@ namespace Notea.Helpers
             return result;
         }
 
+        /// <summary>
+        /// 특정 월의 모든 코멘트를 가져옵니다. (정적 메서드로 추가)
+        /// </summary>
+        /// <param name="year">연도</param>
+        /// <param name="month">월</param>
+        /// <returns>날짜(yyyy-MM-dd)를 키로, 코멘트를 값으로 갖는 딕셔너리</returns>
+        public static Dictionary<string, string> GetCommentsForMonth(int year, int month)
+        {
+            var comments = new Dictionary<string, string>();
+            try
+            {
+                using (var connection = new SQLiteConnection(GetConnectionString()))
+                {
+                    connection.Open();
+                    string query = "SELECT Date, Text FROM Comment WHERE strftime('%Y-%m', Date) = @yearMonth";
+                    using (var command = new SQLiteCommand(query, connection))
+                    {
+                        command.Parameters.AddWithValue("@yearMonth", $"{year}-{month:D2}");
+                        using (var reader = command.ExecuteReader())
+                        {
+                            while (reader.Read())
+                            {
+                                string dateStr = reader["Date"].ToString();
+                                string text = reader["Text"].ToString();
+                                comments[dateStr] = text;
+                            }
+                        }
+                    }
+                }
+                Debug.WriteLine($"[Helpers.DB] {year}-{month}월 코멘트 {comments.Count}개 로드됨");
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[Helpers.DB ERROR] 월별 코멘트 로드 실패: {ex.Message}");
+            }
+            return comments;
+        }
+
         // ✅ 디버깅용 테이블 구조 확인 (개발 시에만 사용)
         public static void CheckTableStructure()
         {

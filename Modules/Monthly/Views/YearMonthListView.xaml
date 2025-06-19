@@ -4,24 +4,25 @@
       xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
       xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
       xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
-      xmlns:local="clr-namespace:Notea.Modules.Monthly.Views"
-      mc:Ignorable="d" >
+      xmlns:local="clr-namespace:Notea.Modules.Monthly.Views" xmlns:vm="clr-namespace:Notea.Modules.Monthly.ViewModels"
+             mc:Ignorable="d" >
 
-    <Grid Margin="20">
+    <Grid>
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="7*"/>
         </Grid.RowDefinitions>
 
         <!-- 년도 헤더 -->
         <TextBlock Grid.Row="0" 
                    Text="{Binding Year}" 
                    Style="{StaticResource titleStyle}"
-                   FontSize="24"
-                   Margin="20,0,0,20"/>
-
-        <Rectangle Grid.Row="1" Height="1" Fill="{StaticResource black}" HorizontalAlignment="Stretch"/>
+                   FontSize="32"
+                   VerticalAlignment="Center"
+                   Margin="20,0,20,0"/>
+        
+        <Rectangle Grid.Row="1" Height="2" Fill="{StaticResource black}" HorizontalAlignment="Stretch"/>
 
         <!-- 월별 리스트 -->
         <ItemsControl Grid.Row="2" ItemsSource="{Binding Months}">

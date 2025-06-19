@@ -35,8 +35,9 @@ namespace Notea.Modules.Monthly.ViewModels
 
         public YearMonthListViewModel()
         {
-            Year = DateTime.Now.Year;
             Months = new ObservableCollection<YearMonthViewModel>();
+            Year = DateTime.Now.Year;
+            
             InitializeMonths();
             LoadMonthComments();
         }
@@ -45,7 +46,7 @@ namespace Notea.Modules.Monthly.ViewModels
         {
             for (int i = 1; i <= 12; i++)
             {
-                Months.Add(new YearMonthViewModel { Month = i, Comment = "comment" });
+                Months.Add(new YearMonthViewModel { Month = i, Year = Year,Comment = "comment" });
             }
         }
 
@@ -63,13 +64,36 @@ namespace Notea.Modules.Monthly.ViewModels
                     }
                     else
                     {
-                        month.Comment = "comment";
+                        month.Comment = "";
                     }
                 }
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[ERROR] 연간 코멘트 로드 실패: {ex.Message}");
+            }
+        }
+
+        public void RefreshYearData()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[YearMonthListViewModel] {Year}년 데이터 새로고침");
+
+                // 현재 년도의 월별 코멘트 다시 로드
+                LoadMonthComments();
+
+                // 각 월 항목의 Year도 업데이트
+                foreach (var month in Months)
+                {
+                    month.Year = Year;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[YearMonthListViewModel] 데이터 새로고침 완료");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[YearMonthListViewModel] 데이터 새로고침 오류: {ex.Message}");
             }
         }
 
