@@ -30,6 +30,22 @@ namespace Notea.Modules.Subjects.Views
             }
         }
 
+        private void SubjectAddBox_KeyDown(object sender, KeyEventArgs e)
+        {
+            // 눌린 키가 ESC 키인지 확인합니다.
+            if (e.Key == Key.Escape)
+            {
+                // DataContext를 ViewModel로 가져옵니다.
+                if (this.DataContext is SubjectListPageViewModel vm)
+                {
+                    // IsAdding 상태를 false로 변경하여 입력창을 숨깁니다.
+                    vm.IsAdding = false;
+                }
+                // 다른 컨트롤로 이벤트가 전파되지 않도록 처리 완료로 표시합니다.
+                e.Handled = true;
+            }
+        }
+
 
     }
 

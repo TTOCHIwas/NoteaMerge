@@ -6,7 +6,7 @@
         Title="Notea" Height="900" Width="1400">
 
     <Window.DataContext>
-        <vm:MainViewModel/>
+        <vm:MainViewModel x:Name="mainViewModelInstance"/>
     </Window.DataContext>
 
     <views:LayoutShell />

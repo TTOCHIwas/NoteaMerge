@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Globalization;
 using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
@@ -10,6 +11,8 @@ using System.Windows.Threading;
 using Notea.Modules.Common.ViewModels;
 using Notea.Modules.Daily.ViewModels;
 using Notea.Modules.Daily.Views;
+using Notea.Modules.Monthly.ViewModels;
+using Notea.Modules.Monthly.Views;
 using Notea.Modules.Subjects.ViewModels;
 using Notea.Modules.Subjects.Views;
 
@@ -26,12 +29,16 @@ namespace Notea.ViewModels
         private readonly DailyHeaderViewModel _dailyHeaderVM;
         private readonly DailyBodyViewModel _dailyBodyVM;
         private readonly SubjectListPageViewModel _subjectListPageVM;
+        private readonly MonthlyPlanViewModel _monthlyPlanVM;
+        private readonly YearMonthListViewModel _yearMonthListVM;
 
         // View들 (한 번만 생성)
         private readonly DailyHeaderView _dailyHeaderView;
         private readonly DailyBodyView _dailyBodyView;
         private readonly SubjectListPageHeaderView _subjectHeaderView;
         private readonly SubjectListPageBodyView _subjectBodyView;
+        private readonly CalendarMonth _calendarMonthView;
+        private readonly YearMonthListView _yearMonthListView;
 
         private Notea.Modules.Subject.Views.NotePageHeaderView _notePageHeaderView;
         private Notea.Modules.Subject.Views.NotePageBodyView _notePageBodyView;
@@ -108,6 +115,7 @@ namespace Notea.ViewModels
                 {
                     _leftSidebarWidth = value;
                     OnPropertyChanged(nameof(LeftSidebarWidth));
+                    OnPropertyChanged(nameof(IsSidebarCollapsed));
                 }
             }
         }
@@ -116,8 +124,23 @@ namespace Notea.ViewModels
         public ICommand ExpandSidebarCommand { get; }
         public ICommand NavigateToSubjectListCommand { get; }
         public ICommand NavigateToTodayCommand { get; }
+        public ICommand NavigateToCalendarCommand { get; }
+        public ICommand NavigateToYearlyCommand { get; }
+        public ICommand NavigateToDailyViewForDateCommand { get; }
+        public ICommand NavigateToCalendarFromYearlyCommand { get; }
 
-        private UserControl _headerContent;
+        private bool _isHeaderVisible = true;
+        public bool IsHeaderVisible
+        {
+            get => _isHeaderVisible;
+            set
+            {
+               _isHeaderVisible = value;
+                OnPropertyChanged(nameof(IsHeaderVisible));
+            }
+        }
+
+private UserControl _headerContent;
         public UserControl HeaderContent
         {
             get => _headerContent;
@@ -172,6 +195,9 @@ namespace Notea.ViewModels
             _dailyHeaderVM = new DailyHeaderViewModel();
             _dailyBodyVM = new DailyBodyViewModel(AppStartDate, skipInitialLoad: true); // ✅ 초기 로딩 스킵
             _subjectListPageVM = new SubjectListPageViewModel();
+            _monthlyPlanVM = new MonthlyPlanViewModel();
+            _yearMonthListVM = new YearMonthListViewModel();
+
 
             _dailyBodyVM.SetSharedSubjects(SharedSubjectProgress);
 
@@ -180,6 +206,15 @@ namespace Notea.ViewModels
             _subjectHeaderView = new SubjectListPageHeaderView();
             _subjectBodyView = new SubjectListPageBodyView { DataContext = _subjectListPageVM };
 
+            // ✅ 수정: CalendarMonth에 올바른 ViewModel 연결
+            _calendarMonthView = new CalendarMonth { DataContext = _monthlyPlanVM };
+
+            // ✅ 수정: YearMonthListView DataContext 제거 (생성자에서 이미 설정됨)
+            _yearMonthListView = new YearMonthListView{DataContext = _yearMonthListVM};
+            //_yearMonthListView.DataContext = _yearMonthListVM; // 명시적 설정
+
+            // 초기 화면 설정 (Daily 화면)
+
             HeaderContent = _dailyHeaderView;
             BodyContent = _dailyBodyView;
 
@@ -187,6 +222,16 @@ namespace Notea.ViewModels
             ExpandSidebarCommand = new RelayCommand(ExpandSidebar);
             NavigateToSubjectListCommand = new RelayCommand(NavigateToSubjectList);
             NavigateToTodayCommand = new RelayCommand(NavigateToToday);
+
+            NavigateToCalendarCommand = new RelayCommand<string>(NavigateToCalendar);
+            NavigateToYearlyCommand = new RelayCommand(NavigateToYearly);
+            //미래의 할일은 진입 x
+            NavigateToDailyViewForDateCommand = new RelayCommand<DateTime>(
+     execute: NavigateToDailyViewForDate,
+     canExecute: (date) => date.Date <= DateTime.Today
+ );
+            NavigateToCalendarFromYearlyCommand = new RelayCommand<YearMonthViewModel>(NavigateToCalendarFromYearly);
+
             NavigateToNoteEditorCommand = new RelayCommand<object>(NavigateToNoteEditor);
             NavigateBackToSubjectListCommand = new RelayCommand(NavigateBackToSubjectList);
 
@@ -396,7 +441,11 @@ namespace Notea.ViewModels
         {
             try
             {
+
+                IsHeaderVisible = true;
+
                 SaveCurrentNotePageIfExists();
+
 
                 HeaderContent = _subjectHeaderView;
                 BodyContent = _subjectBodyView;
@@ -417,21 +466,204 @@ namespace Notea.ViewModels
 
         private void NavigateToToday()
         {
+            _dailyBodyVM.RefreshDdayInfo(); // D-Day 정보 갱신
             try
             {
-                SaveCurrentNotePageIfExists();
 
+                IsHeaderVisible=true; // 헤더 표시
+                SaveCurrentNotePageIfExists();
                 HeaderContent = _dailyHeaderView;
                 BodyContent = _dailyBodyView;
                 SidebarViewModel.SetContext("main");
 
+
+                // 1. Body ViewModel에 오늘 날짜의 데이터를 로드하라고 명령합니다.
+                _dailyBodyVM.LoadDailyData(DateTime.Now);
+
+                // 2. Header ViewModel에 표시될 날짜를 오늘 날짜로 설정하라고 명령합니다.
+                _dailyHeaderVM.SetSelectedDate(DateTime.Now);
+
+                _dailyHeaderVM.Title = "오늘 할 일";
+
+                // 3. (D-Day 기능 사용 시) D-Day 정보도 새로고침합니다.
+                _dailyBodyVM.RefreshDdayInfo();
+
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 오늘 페이지로 이동 및 데이터 새로고침 완료");
+
                 SidebarViewModel.RefreshData();
 
                 System.Diagnostics.Debug.WriteLine("[MainViewModel] 오늘 페이지로 이동");
+
             }
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] 오늘 페이지 이동 오류: {ex.Message}");
+            }
+        }
+        /// <summary>
+        /// Daily 화면의 날짜 클릭 → Calendar 화면으로 이동
+        /// 파라미터: DailyHeaderViewModel.CurrentDate (string "yyyy.MM.dd")
+        /// </summary>
+        private void NavigateToCalendar(string dateString)
+        {
+            try
+            {
+                DateTime? selectedDate = null;
+
+                // "yyyy.MM.dd" 형식 파싱
+                if (!string.IsNullOrEmpty(dateString) &&
+                    DateTime.TryParseExact(dateString, "yyyy.MM.dd", null, DateTimeStyles.None, out DateTime parsed))
+                {
+                    selectedDate = parsed;
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[Navigation] 캘린더로 이동 - 날짜: {selectedDate?.ToShortDateString() ?? "파싱 실패"}");
+
+                IsHeaderVisible = false;
+                HeaderContent = null; // 헤더 숨김
+                BodyContent = _calendarMonthView;
+
+                if (selectedDate.HasValue)
+                {
+                    _calendarMonthView.CurrentDate = selectedDate.Value;
+                }
+                else
+                {
+                    _calendarMonthView.CurrentDate = DateTime.Now;
+                }
+
+                // ✅ 수정: 사이드바 컨텍스트를 "today"로 변경 (프로그래스 리스트 표시)
+                SidebarViewModel.SetContext("today");
+
+                // ✅ 추가: 공유 데이터 연결
+                SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
+
+                System.Diagnostics.Debug.WriteLine("[Navigation] 캘린더 이동 완료");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Navigation] 캘린더 이동 오류: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Calendar 화면의 년/월 텍스트 클릭 → Yearly 화면으로 이동
+        /// 파라미터: 없음
+        /// </summary>
+        private void NavigateToYearly()
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine("[Navigation] 연간 뷰로 이동");
+
+                // 헤더 숨김
+                IsHeaderVisible = false;
+
+                // 연간 월 목록 뷰로 콘텐츠 변경
+                BodyContent = _yearMonthListView;
+
+                // 연간 데이터 새로고침
+                if (_yearMonthListVM != null)
+                {
+                    _yearMonthListVM.RefreshYearData(); // 이 메서드 구현 필요
+                }
+
+                // 사이드바 컨텍스트 변경
+                SidebarViewModel.SetContext("yearly");
+
+                System.Diagnostics.Debug.WriteLine("[Navigation] 연간 뷰 이동 완료");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Navigation] 연간 뷰 이동 오류: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Calendar 화면의 날짜 더블클릭 → Daily 화면으로 이동
+        /// 파라미터: CalendarDay.Date (DateTime)
+        /// </summary>
+        private void NavigateToDailyViewForDate(DateTime selectedDate)
+        {
+            _dailyBodyVM.RefreshDdayInfo(); // D-Day 정보 갱신
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[Navigation] Daily 뷰로 이동 - 날짜: {selectedDate.ToShortDateString()}");
+
+                // 헤더 표시
+                IsHeaderVisible = true;
+
+                // Daily 뷰로 콘텐츠 변경
+                HeaderContent = _dailyHeaderView;
+                BodyContent = _dailyBodyView;
+
+                // 선택된 날짜의 데이터 로드
+                _dailyBodyVM.LoadDailyData(selectedDate);
+
+                // DailyHeaderViewModel에 선택된 날짜 설정
+                if (_dailyHeaderVM != null)
+                {
+                    _dailyHeaderVM.SetSelectedDate(selectedDate);
+
+                    // 날짜를 비교하여 헤더의 Title을 직접 설정합니다.
+                    if (selectedDate.Date == DateTime.Today)
+                    {
+                        _dailyHeaderVM.Title = "오늘 할 일";
+                    }
+                    else
+                    {
+                        _dailyHeaderVM.Title = selectedDate.ToString("지난 일정");
+                    }
+                }
+
+                // 사이드바 컨텍스트 변경
+                SidebarViewModel.SetContext("main");
+
+                System.Diagnostics.Debug.WriteLine($"[Navigation] Daily 뷰 이동 완료 - {selectedDate.ToShortDateString()}");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Navigation] Daily 뷰 이동 오류: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Yearly 화면의 월 항목 클릭 → Calendar 화면으로 이동
+        /// 파라미터: YearMonthViewModel 객체
+        /// </summary>
+        private void NavigateToCalendarFromYearly(YearMonthViewModel selectedMonth)
+        {
+            try
+            {
+                if (selectedMonth == null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[Navigation] 선택된 월이 null입니다.");
+                    return;
+                }
+
+                // Year 프로퍼티 필요 (YearMonthViewModel에 추가 필요)
+                int year = selectedMonth.Year > 0 ? selectedMonth.Year : DateTime.Now.Year;
+
+                System.Diagnostics.Debug.WriteLine($"[Navigation] 연간 뷰에서 캘린더로 이동 - {year}년 {selectedMonth.Month}월");
+
+                // 헤더 숨김
+                IsHeaderVisible = false;
+
+                // 캘린더 뷰로 콘텐츠 변경
+                BodyContent = _calendarMonthView;
+
+                // 선택된 월로 캘린더 설정
+                DateTime targetDate = new DateTime(year, selectedMonth.Month, 1);
+                _calendarMonthView.CurrentDate = targetDate;
+
+                // 사이드바 컨텍스트 변경
+                SidebarViewModel.SetContext("calendar");
+
+                System.Diagnostics.Debug.WriteLine($"[Navigation] 캘린더 이동 완료 - {year}년 {selectedMonth.Month}월");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[Navigation] 연간→캘린더 이동 오류: {ex.Message}");
             }
         }
 

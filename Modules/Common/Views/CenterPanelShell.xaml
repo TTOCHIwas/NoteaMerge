@@ -5,22 +5,39 @@
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
              mc:Ignorable="d"
              >
+    <UserControl.Resources>
+        <!-- BoolToVisibilityConverter 정의 -->
+        <BooleanToVisibilityConverter x:Key="BoolToVisibilityConverter"/>
 
-    <Border Padding="20">
+        <!-- Style for dynamic RowDefinition Height -->
+        <Style x:Key="HeaderRowStyle" TargetType="RowDefinition">
+            <Setter Property="Height" Value="*"/>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding DataContext.IsHeaderVisible, RelativeSource={RelativeSource AncestorType=Window}}" Value="False">
+                    <Setter Property="Height" Value="0"/>
+                </DataTrigger>
+            </Style.Triggers>
+        </Style>
+    </UserControl.Resources>
+
+    <Border Padding="20" Background="White">
         <Grid>
             <Grid.RowDefinitions>
-                <RowDefinition Height="*"/>
-                <!-- 헤더 영역 -->
+                <RowDefinition Style="{StaticResource HeaderRowStyle}"/>
+                <!-- 헤더 영역 - 동적 크기 -->
                 <RowDefinition Height="7*"/>
                 <!-- 본문 영역 -->
             </Grid.RowDefinitions>
 
             <!-- 유동 헤더 -->
-            <ContentControl Grid.Row="0" Content="{Binding HeaderContent, RelativeSource={RelativeSource AncestorType=UserControl}}" 
-                            HorizontalAlignment="Stretch"/>
+            <ContentControl Grid.Row="0" 
+                            Content="{Binding HeaderContent, RelativeSource={RelativeSource AncestorType=UserControl}}" 
+                            HorizontalAlignment="Stretch"
+                            Visibility="{Binding DataContext.IsHeaderVisible, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BoolToVisibilityConverter}}"/>
 
             <!-- 유동 바디 -->
-            <ContentControl Grid.Row="1" Content="{Binding BodyContent, RelativeSource={RelativeSource AncestorType=UserControl}}"
+            <ContentControl Grid.Row="1" 
+                            Content="{Binding BodyContent, RelativeSource={RelativeSource AncestorType=UserControl}}"
                             HorizontalAlignment="Stretch"/>
         </Grid>
     </Border>

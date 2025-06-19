@@ -21,13 +21,13 @@
         <commonViews:SubjectListView Grid.Row="0" Margin="20,0"/>
 
         <!-- 추가 버튼 + 입력창 컨테이너 -->
-        <Grid Grid.Row="1" Margin="0,10,0,10" Height="60">
+        <Grid Grid.Row="1" Margin="0,10">
             <Grid.RowDefinitions>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
 
             <!-- [1] 기본 버튼: IsAdding == false일 때만 보임 -->
-            <Border Background="#DDDDDD">
+            <Border Background="#DDDDDD" Padding="12, 20">
                 <Border.Style>
                     <Style TargetType="Border">
                         <Setter Property="Visibility" Value="Visible"/>
@@ -42,15 +42,13 @@
                     <MouseBinding MouseAction="LeftClick" Command="{Binding StartAddCommand}" />
                 </Border.InputBindings>
                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                    <svgc:SvgViewbox Source="/Resources/Images/add_todo.svg"
-                 Width="20" Height="20"
-                 Margin="20,0"/>
-                    <TextBlock Text="추가" FontWeight="Light" FontSize="16" VerticalAlignment="Center"/>
+                    <svgc:SvgViewbox Source="/Resources/Images/add_todo.svg" Width="18" Height="18" Margin="20,0"/>
+                    <TextBlock Text="추가" Style="{StaticResource addSubjectStyle}" VerticalAlignment="Center"/>
                 </StackPanel>
             </Border>
 
             <!-- [2] 입력창: IsAdding == true일 때만 보임 -->
-            <Border Background="#DDDDDD">
+            <Border Background="#DDDDDD" Padding="16, 24">
                 <Border.Style>
                     <Style TargetType="Border">
                         <Setter Property="Visibility" Value="Collapsed"/>
@@ -68,18 +66,20 @@
                     </Grid.ColumnDefinitions>
                     <svgc:SvgViewbox Grid.Column="0"
                  Source="/Resources/Images/check_default.svg"
-                 Width="20" Height="20"
+                 Width="18" Height="18"
                  Margin="20,0"/>
                     <TextBox x:Name="SubjectAddBox"
          Grid.Column="1"
          BorderThickness="0"
          Background="Transparent"
          FontSize="16"
+         FontWeight="SemiBold"
          FontFamily="Pretendard"
          Foreground="#555555"
          VerticalContentAlignment="Center"
          Text="{Binding NewSubjectText, UpdateSourceTrigger=PropertyChanged}"
-                     IsVisibleChanged="SubjectAddBox_IsVisibleChanged">
+                     IsVisibleChanged="SubjectAddBox_IsVisibleChanged"
+                             KeyDown="SubjectAddBox_KeyDown">
                         <TextBox.InputBindings>
                             <KeyBinding Key="Enter" Command="{Binding AddSubjectCommand}" />
                         </TextBox.InputBindings>
