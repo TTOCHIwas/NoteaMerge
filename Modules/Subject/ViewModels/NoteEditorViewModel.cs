@@ -21,6 +21,7 @@ namespace Notea.Modules.Subject.ViewModels
     {
 
         private RightSidebarViewModel _rightSidebarViewModel;
+        private bool _isSaving = false;
 
         private readonly UndoRedoManager<NoteState> _undoRedoManager = new();
         public ObservableCollection<MarkdownLineViewModel> Lines { get; set; }

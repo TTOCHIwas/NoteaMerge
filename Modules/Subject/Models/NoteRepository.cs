@@ -544,6 +544,23 @@ namespace Notea.Modules.Subject.Models
         {
             try
             {
+                if (categoryId <= 0)
+                {
+                    Debug.WriteLine($"[SAVE ERROR] CategoryId가 유효하지 않음: {categoryId}");
+
+                    // 기본 카테고리 확보
+                    categoryId = EnsureDefaultCategory(subjectId);
+                    Debug.WriteLine($"[SAVE] CategoryId 재설정: {categoryId}");
+                }
+                if (!IsCategoryExists(categoryId, subjectId))
+                {
+                    Debug.WriteLine($"[SAVE ERROR] CategoryId {categoryId}가 존재하지 않음");
+                    categoryId = EnsureDefaultCategory(subjectId);
+                    Debug.WriteLine($"[SAVE] 기본 카테고리로 재설정: {categoryId}");
+                }
+
+                Debug.WriteLine($"[DB] InsertNewLine 실행 - SubjectId: {subjectId}, CategoryId: {categoryId}, Content: '{content?.Substring(0, Math.Min(content.Length, 20))}...'");
+
                 if (displayOrder == -1)
                 {
                     displayOrder = GetNextDisplayOrder(subjectId);
@@ -625,6 +642,29 @@ namespace Notea.Modules.Subject.Models
             {
                 Debug.WriteLine($"[DB ERROR] InsertNewLine 실패: {ex.Message}");
                 return 0;
+            }
+        }
+
+
+        private static bool IsCategoryExists(int categoryId, int subjectId)
+        {
+            try
+            {
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT COUNT(*) FROM category WHERE categoryId = @categoryId AND subjectId = @subjectId";
+                cmd.Parameters.AddWithValue("@categoryId", categoryId);
+                cmd.Parameters.AddWithValue("@subjectId", subjectId);
+
+                var count = Convert.ToInt32(cmd.ExecuteScalar());
+                return count > 0;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] CategoryId 존재 확인 실패: {ex.Message}");
+                return false;
             }
         }
 
@@ -1270,17 +1310,15 @@ namespace Notea.Modules.Subject.Models
         {
             try
             {
-                System.Diagnostics.Debug.WriteLine($"[CATEGORY] 기본 카테고리 확인 - SubjectId: {subjectId}");
+                Debug.WriteLine($"[CATEGORY] 기본 카테고리 확인 - SubjectId: {subjectId}");
 
                 using var conn = new SQLiteConnection(GetConnectionString());
                 conn.Open();
 
-                // ✅ 트랜잭션 타임아웃 설정
                 using var transaction = conn.BeginTransaction();
 
                 try
                 {
-                    // 기존 기본 카테고리 조회
                     using var checkCmd = conn.CreateCommand();
                     checkCmd.Transaction = transaction;
                     checkCmd.CommandText = "SELECT categoryId FROM category WHERE subjectId = @subjectId AND (title = '기본' OR title LIKE '%기본%') LIMIT 1";
@@ -1294,19 +1332,34 @@ namespace Notea.Modules.Subject.Models
                         return Convert.ToInt32(existingId);
                     }
 
-                    // 새 기본 카테고리 생성
+                    using var timeCmd = conn.CreateCommand();
+                    timeCmd.Transaction = transaction;
+                    timeCmd.CommandText = @"
+                INSERT INTO time (createdDate, lastModifiedDate) 
+                VALUES (@createdDate, @lastModifiedDate);
+                SELECT last_insert_rowid();";
+
+                    var currentTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+                    timeCmd.Parameters.AddWithValue("@createdDate", currentTime);
+                    timeCmd.Parameters.AddWithValue("@lastModifiedDate", currentTime);
+
+                    var timeResult = timeCmd.ExecuteScalar();
+                    int timeId = Convert.ToInt32(timeResult);
+
                     using var insertCmd = conn.CreateCommand();
                     insertCmd.Transaction = transaction;
                     insertCmd.CommandText = @"
-                INSERT INTO category (title, subjectId, displayOrder, level, parentCategoryId) 
-                VALUES ('기본', @subjectId, 1, 1, NULL);
+                INSERT INTO category (title, subjectId, timeId, displayOrder, level, parentCategoryId) 
+                VALUES ('기본', @subjectId, @timeId, 1, 1, NULL);
                 SELECT last_insert_rowid();";
+
                     insertCmd.Parameters.AddWithValue("@subjectId", subjectId);
+                    insertCmd.Parameters.AddWithValue("@timeId", timeId);
 
                     var newCategoryId = Convert.ToInt32(insertCmd.ExecuteScalar());
                     transaction.Commit();
 
-                    System.Diagnostics.Debug.WriteLine($"[CATEGORY] 기본 카테고리 생성 완료: {newCategoryId}");
+                    System.Diagnostics.Debug.WriteLine($"[CATEGORY] 기본 카테고리 생성 완료: {newCategoryId}, TimeId: {timeId}");
                     return newCategoryId;
                 }
                 catch (Exception ex)
@@ -1319,7 +1372,27 @@ namespace Notea.Modules.Subject.Models
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[CATEGORY ERROR] EnsureDefaultCategory 실패: {ex.Message}");
-                return 1; // 비상용 기본값
+
+                try
+                {
+                    using var conn = new SQLiteConnection(GetConnectionString());
+                    conn.Open();
+                    using var cmd = conn.CreateCommand();
+                    cmd.CommandText = "SELECT categoryId FROM category WHERE subjectId = @subjectId ORDER BY categoryId LIMIT 1";
+                    cmd.Parameters.AddWithValue("@subjectId", subjectId);
+
+                    var result = cmd.ExecuteScalar();
+                    if (result != null && result != DBNull.Value)
+                    {
+                        return Convert.ToInt32(result);
+                    }
+                }
+                catch
+                {
+                    // 최후의 수단
+                }
+
+                return 1; // 최소한의 fallback
             }
         }
 

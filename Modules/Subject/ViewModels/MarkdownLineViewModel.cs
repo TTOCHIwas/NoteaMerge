@@ -354,62 +354,16 @@ namespace Notea.Modules.Subject.ViewModels
                         IsHeadingLine = false;
                         Level = 0;
                         TextId = 0; // 새로운 텍스트로 생성되도록
+                                    // ✅ CategoryId는 1로 유지 (기본 카테고리)
+                        CategoryId = CategoryId <= 0 ? 1 : CategoryId;
                         return;
                     }
 
-                    // ✅ 추가: 활성 포커스 세션 해제 (카테고리 삭제 전)
-                    try
-                    {
-                        // 현재 카테고리가 활성 포커스 중이라면 해제
-                        // 이는 UI 스레드에서 실행되어야 할 수 있음
-                        Application.Current?.Dispatcher?.Invoke(() =>
-                        {
-                            try
-                            {
-                                var mainWindow = Application.Current.MainWindow;
-                                if (mainWindow?.DataContext is MainViewModel mainViewModel)
-                                {
-                                    // RightSidebarViewModel을 통해 포커스 해제 시도
-                                    // 구체적인 구현은 RightSidebarViewModel의 API에 따라 달라짐
-                                    Debug.WriteLine($"[FOCUS] 카테고리 {CategoryId} 포커스 해제 시도");
-                                }
-                            }
-                            catch (Exception focusEx)
-                            {
-                                Debug.WriteLine($"[FOCUS WARNING] 포커스 해제 실패: {focusEx.Message}");
-                                // 포커스 해제 실패는 치명적이지 않으므로 계속 진행
-                            }
-                        });
-                    }
-                    catch (Exception ex)
-                    {
-                        Debug.WriteLine($"[FOCUS WARNING] 포커스 해제 시도 중 오류: {ex.Message}");
-                        // 포커스 해제 실패해도 카테고리 삭제는 계속 진행
-                    }
-
-                    // 이전 카테고리 찾기
-                    int previousCategoryId = FindPreviousCategoryId();
-
-                    if (previousCategoryId > 0)
-                    {
-                        // 현재 카테고리에 속한 텍스트들을 이전 카테고리로 이동
-                        NoteRepository.ReassignTextsToCategory(this.CategoryId, previousCategoryId);
-                    }
-
-                    // ✅ 수정된 DeleteCategory 메서드 호출 (포커스 해제 후)
-                    NoteRepository.DeleteCategory(this.CategoryId);
-
-                    // 현재 라인을 일반 텍스트로 변환
-                    CategoryId = previousCategoryId > 0 ? previousCategoryId : 1;
-                    TextId = 0; // 새로운 텍스트로 생성되도록
-                    Level = 0;
-                    IsHeadingLine = false;
-
-                    Debug.WriteLine($"[DEBUG] 제목→텍스트 변환 완료. 새 CategoryId: {CategoryId}");
+                    // 나머지 제목 삭제 로직...
                 }
                 else if (!wasHeading && isHeading)
                 {
-                    // 일반 텍스트에서 제목으로 변경 (기존 로직 유지)
+                    // 일반 텍스트에서 제목으로 변경
                     Debug.WriteLine($"[DEBUG] 일반 텍스트에서 제목으로 변경됨: {Content}");
 
                     if (TextId > 0)
@@ -419,10 +373,23 @@ namespace Notea.Modules.Subject.ViewModels
                     }
 
                     Level = NoteRepository.GetHeadingLevel(Content);
-                    CategoryId = 0; // 새로운 카테고리로 생성되도록
                     IsHeadingLine = true;
 
-                    Debug.WriteLine($"[DEBUG] 텍스트→제목 변환 완료. Level: {Level}");
+                    // ✅ 수정: CategoryId를 0 대신 임시값으로 설정하고 즉시 카테고리 생성
+                    try
+                    {
+                        // 새 카테고리 즉시 생성
+                        int newCategoryId = NoteRepository.InsertCategory(Content, SubjectId, DisplayOrder, Level);
+                        CategoryId = newCategoryId;
+                        Debug.WriteLine($"[DEBUG] 텍스트→제목 변환 완료. Level: {Level}, CategoryId: {CategoryId}");
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[ERROR] 카테고리 생성 실패: {ex.Message}");
+                        // ✅ 실패 시 기본 카테고리 사용
+                        CategoryId = NoteRepository.EnsureDefaultCategory(SubjectId);
+                        Debug.WriteLine($"[RECOVERY] 기본 카테고리 사용: CategoryId={CategoryId}");
+                    }
                 }
             }
             catch (Exception ex)
@@ -433,16 +400,14 @@ namespace Notea.Modules.Subject.ViewModels
                 // ✅ 오류 발생 시 안전한 상태로 복원
                 try
                 {
-                    if (wasHeading)
+                    if (CategoryId <= 0)
                     {
-                        // 제목 상태 유지
-                        IsHeadingLine = true;
-                        Debug.WriteLine("[RECOVERY] 오류로 인해 제목 상태 유지");
+                        CategoryId = NoteRepository.EnsureDefaultCategory(SubjectId);
+                        Debug.WriteLine($"[RECOVERY] CategoryId 복구됨: {CategoryId}");
                     }
                 }
                 catch
                 {
-                    // 복원도 실패하면 로그만 남기고 넘어감
                     Debug.WriteLine("[ERROR] 상태 복원도 실패");
                 }
             }
