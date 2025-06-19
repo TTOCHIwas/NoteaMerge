@@ -520,11 +520,39 @@ namespace Notea.Modules.Subject.ViewModels
             {
                 foreach (MarkdownLineViewModel removedLine in e.OldItems)
                 {
-                    if (removedLine.TextId > 0)
+                    // ✅ 수정: 제목과 일반 텍스트를 구분하여 처리
+                    if (removedLine.IsHeadingLine && removedLine.CategoryId > 0)
                     {
-                        NoteRepository.DeleteLine(removedLine.TextId);
-                        Debug.WriteLine($"[DEBUG] 라인 삭제됨. TextId: {removedLine.TextId}");
+                        // 제목 삭제 - CategoryId로 삭제
+                        try
+                        {
+                            NoteRepository.DeleteCategory(removedLine.CategoryId, true);
+                            Debug.WriteLine($"[DEBUG] 제목 라인 삭제됨. CategoryId: {removedLine.CategoryId}, Content: '{removedLine.Content}'");
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[ERROR] 제목 삭제 실패. CategoryId: {removedLine.CategoryId}, Error: {ex.Message}");
+                        }
                     }
+                    else if (!removedLine.IsHeadingLine && removedLine.TextId > 0)
+                    {
+                        // 일반 텍스트 삭제 - TextId로 삭제
+                        try
+                        {
+                            NoteRepository.DeleteLine(removedLine.TextId);
+                            Debug.WriteLine($"[DEBUG] 텍스트 라인 삭제됨. TextId: {removedLine.TextId}, Content: '{removedLine.Content}'");
+                        }
+                        catch (Exception ex)
+                        {
+                            Debug.WriteLine($"[ERROR] 텍스트 삭제 실패. TextId: {removedLine.TextId}, Error: {ex.Message}");
+                        }
+                    }
+                    else
+                    {
+                        // 아직 DB에 저장되지 않은 라인 (TextId = 0, CategoryId = 0)
+                        Debug.WriteLine($"[DEBUG] 저장되지 않은 라인 제거됨. Content: '{removedLine.Content}'");
+                    }
+
                     UnregisterLineEvents(removedLine);
                 }
             }
@@ -532,6 +560,7 @@ namespace Notea.Modules.Subject.ViewModels
             // 인덱스 재정렬
             UpdateLineIndices();
         }
+
 
 
 
