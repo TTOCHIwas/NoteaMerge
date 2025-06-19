@@ -640,7 +640,6 @@ namespace Notea.Modules.Common.Helpers
             });
         }
 
-        // ✅ 수정: LoadTopicGroupsForSubject 메소드 (초단위 컬럼 사용)
         private void LoadTopicGroupsForSubject(SQLiteConnection conn, SubjectGroupViewModel subject)
         {
             using var groupCmd = conn.CreateCommand();
@@ -658,47 +657,63 @@ namespace Notea.Modules.Common.Helpers
                 System.Diagnostics.Debug.WriteLine($"[DB] TotalStudyTimeSeconds 컬럼 확인 실패: {ex.Message}");
             }
 
-            // 컬럼 존재 여부에 따라 다른 쿼리 사용
+            // ✅ 핵심 수정: displayOrder로 정렬하도록 변경
             if (hasTotalStudyTimeSeconds)
             {
                 groupCmd.CommandText = @"
-            SELECT categoryId, title, COALESCE(TotalStudyTimeSeconds, 0) as TotalStudyTimeSeconds 
+            SELECT categoryId, title, COALESCE(TotalStudyTimeSeconds, 0) as TotalStudyTimeSeconds, 
+                   COALESCE(displayOrder, 999) as displayOrder
             FROM category 
             WHERE subjectId = @subjectId 
-            ORDER BY title";
+            ORDER BY displayOrder ASC, categoryId ASC";
             }
             else
             {
-                // TotalStudyTimeSeconds 컬럼이 없는 경우 0으로 처리
+                // TotalStudyTimeSeconds 컬럼이 없는 경우 0으로 처리하되 displayOrder로 정렬
                 groupCmd.CommandText = @"
-            SELECT categoryId, title, 0 as TotalStudyTimeSeconds 
+            SELECT categoryId, title, 0 as TotalStudyTimeSeconds,
+                   COALESCE(displayOrder, 999) as displayOrder
             FROM category 
             WHERE subjectId = @subjectId 
-            ORDER BY title";
+            ORDER BY displayOrder ASC, categoryId ASC";
             }
 
             groupCmd.Parameters.AddWithValue("@subjectId", subject.SubjectId);
 
-            using var groupReader = groupCmd.ExecuteReader();
-            while (groupReader.Read())
+            try
             {
-                var categoryId = Convert.ToInt32(groupReader["categoryId"]);
-                var categoryTitle = groupReader["title"].ToString();
-                var totalStudyTimeSeconds = Convert.ToInt32(groupReader["TotalStudyTimeSeconds"]);
+                using var groupReader = groupCmd.ExecuteReader();
 
-                var topicGroup = new TopicGroupViewModel
+                // ✅ 기존 TopicGroups 클리어 (새로고침 시 중복 방지)
+                subject.TopicGroups.Clear();
+
+                while (groupReader.Read())
                 {
-                    CategoryId = categoryId,
-                    GroupTitle = categoryTitle,
-                    TotalStudyTimeSeconds = totalStudyTimeSeconds,
-                    ParentSubjectName = subject.SubjectName,
-                    Topics = new ObservableCollection<Notea.Modules.Subjects.Models.TopicItem>()
-                };
+                    var categoryId = Convert.ToInt32(groupReader["categoryId"]);
+                    var title = groupReader["title"].ToString();
+                    var totalStudyTimeSeconds = Convert.ToInt32(groupReader["TotalStudyTimeSeconds"]);
+                    var displayOrder = Convert.ToInt32(groupReader["displayOrder"]);
 
-                subject.TopicGroups.Add(topicGroup);
+                    var topicGroup = new TopicGroupViewModel
+                    {
+                        GroupTitle = title,
+                        CategoryId = categoryId,
+                        TotalStudyTimeSeconds = totalStudyTimeSeconds,
+                        ParentSubjectName = subject.SubjectName,
+                        Topics = new ObservableCollection<Notea.Modules.Subjects.Models.TopicItem>()
+                    };
+
+                    subject.TopicGroups.Add(topicGroup);
+
+                    System.Diagnostics.Debug.WriteLine($"[DB] 카테고리 로드: '{title}' (CategoryId: {categoryId}, DisplayOrder: {displayOrder}, SubjectId: {subject.SubjectId})");
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[DB] 과목 '{subject.SubjectName}'에 대해 {subject.TopicGroups.Count}개 카테고리 로드 완료 (DisplayOrder 정렬)");
             }
-
-            System.Diagnostics.Debug.WriteLine($"[Common.DB] Subject '{subject.SubjectName}'에 {subject.TopicGroups.Count}개 Category 로드됨");
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[DB ERROR] 과목 '{subject.SubjectName}'의 카테고리 로드 실패: {ex.Message}");
+            }
         }
 
         public void ForceSchemaUpdate()

@@ -6,14 +6,14 @@ using Notea.Modules.Subjects.ViewModels;
 namespace Notea.Modules.Subjects.Views
 {
     /// <summary>
-    /// SubjectListPageBodyView.xaml에 대한 상호 작용 논리
+    /// 
+    /// .xaml에 대한 상호 작용 논리
     /// </summary>
     public partial class SubjectListPageBodyView : UserControl
     {
         public SubjectListPageBodyView()
         {
             InitializeComponent();
-            this.DataContext = new SubjectListPageViewModel(); // ViewModel 명시적 연결
         }
 
         private void SubjectAddBox_IsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)

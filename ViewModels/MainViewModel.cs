@@ -188,13 +188,10 @@ private UserControl _headerContent;
 
         public MainViewModel()
         {
-            // 🆕 공유 데이터 소스 초기화 (실제 측정 시간만)
             SharedSubjectProgress = new ObservableCollection<SubjectProgressViewModel>();
 
-            // 사이드바 ViewModel 초기화
             SidebarViewModel = new LeftSidebarViewModel("main");
 
-            // ViewModel들 생성 (한 번만) - 🚨 skipInitialLoad: true 추가
             _dailyHeaderVM = new DailyHeaderViewModel();
             _dailyBodyVM = new DailyBodyViewModel(AppStartDate, skipInitialLoad: true); // ✅ 초기 로딩 스킵
             _subjectListPageVM = new SubjectListPageViewModel();
@@ -202,10 +199,8 @@ private UserControl _headerContent;
             _yearMonthListVM = new YearMonthListViewModel();
 
 
-            // 🆕 DailyBodyViewModel의 Subjects를 공유 데이터로 교체
             _dailyBodyVM.SetSharedSubjects(SharedSubjectProgress);
 
-            // View들 생성 및 DataContext 설정 (한 번만)
             _dailyHeaderView = new DailyHeaderView { DataContext = _dailyHeaderVM };
             _dailyBodyView = new DailyBodyView { DataContext = _dailyBodyVM };
             _subjectHeaderView = new SubjectListPageHeaderView();
@@ -219,10 +214,10 @@ private UserControl _headerContent;
             //_yearMonthListView.DataContext = _yearMonthListVM; // 명시적 설정
 
             // 초기 화면 설정 (Daily 화면)
+
             HeaderContent = _dailyHeaderView;
             BodyContent = _dailyBodyView;
 
-            // Commands 초기화
             ToggleSidebarCommand = new RelayCommand(ToggleSidebar);
             ExpandSidebarCommand = new RelayCommand(ExpandSidebar);
             NavigateToSubjectListCommand = new RelayCommand(NavigateToSubjectList);
@@ -364,24 +359,26 @@ private UserControl _headerContent;
         {
             try
             {
-                // 필기 내용 저장
                 if (_notePageVM != null)
                 {
+                    _notePageVM.EditorViewModel?.ForceFullSave();
                     _notePageVM.SaveChanges();
                 }
 
-                // 과목 목록 화면으로 복귀
                 HeaderContent = _subjectHeaderView;
                 BodyContent = _subjectBodyView;
-                SidebarViewModel.SetContext("today");
-                SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
 
-                // 사용한 View들 정리
+                SidebarViewModel.SetContext("main");
+
+                SidebarViewModel.RefreshData();
+
+                _subjectListPageVM?.RefreshData();
+
                 _notePageHeaderView = null;
                 _notePageBodyView = null;
                 _notePageVM = null;
 
-                System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록으로 돌아감");
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록으로 돌아감 완료 (데이터 새로고침됨)");
             }
             catch (Exception ex)
             {
@@ -444,12 +441,22 @@ private UserControl _headerContent;
         {
             try
             {
+
                 IsHeaderVisible = true;
+
+                SaveCurrentNotePageIfExists();
+
+
                 HeaderContent = _subjectHeaderView;
                 BodyContent = _subjectBodyView;
+
                 SidebarViewModel.SetContext("today");
-                SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
-                System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록 페이지로 이동");
+
+                SidebarViewModel.RefreshData();
+
+                _subjectListPageVM?.RefreshData();
+
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 과목 목록 페이지로 이동 완료 (데이터 새로고침됨)");
             }
             catch (Exception ex)
             {
@@ -462,10 +469,13 @@ private UserControl _headerContent;
             _dailyBodyVM.RefreshDdayInfo(); // D-Day 정보 갱신
             try
             {
+
                 IsHeaderVisible=true; // 헤더 표시
+                SaveCurrentNotePageIfExists();
                 HeaderContent = _dailyHeaderView;
                 BodyContent = _dailyBodyView;
                 SidebarViewModel.SetContext("main");
+
 
                 // 1. Body ViewModel에 오늘 날짜의 데이터를 로드하라고 명령합니다.
                 _dailyBodyVM.LoadDailyData(DateTime.Now);
@@ -479,6 +489,11 @@ private UserControl _headerContent;
                 _dailyBodyVM.RefreshDdayInfo();
 
                 System.Diagnostics.Debug.WriteLine("[MainViewModel] 오늘 페이지로 이동 및 데이터 새로고침 완료");
+
+                SidebarViewModel.RefreshData();
+
+                System.Diagnostics.Debug.WriteLine("[MainViewModel] 오늘 페이지로 이동");
+
             }
             catch (Exception ex)
             {
@@ -649,6 +664,27 @@ private UserControl _headerContent;
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[Navigation] 연간→캘린더 이동 오류: {ex.Message}");
+            }
+        }
+
+        private void SaveCurrentNotePageIfExists()
+        {
+            try
+            {
+                if (_notePageVM != null)
+                {
+                    System.Diagnostics.Debug.WriteLine("[MainViewModel] 필기 화면 이탈 감지 - 데이터 저장 시작");
+
+                    // 강제 즉시 저장
+                    _notePageVM.EditorViewModel?.ForceFullSave();
+                    _notePageVM.SaveChanges();
+
+                    System.Diagnostics.Debug.WriteLine("[MainViewModel] 필기 화면 이탈 - 데이터 저장 완료");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 필기 화면 이탈 저장 오류: {ex.Message}");
             }
         }
 
@@ -894,55 +930,78 @@ private UserControl _headerContent;
 
         // ✅ 수정: 메소드명 통일 및 완전한 구현
         private void UpdateAllProgressData()
+{
+    try
+    {
+        var today = DateTime.Today;
+        int totalTodaySeconds = 0;
+
+        System.Diagnostics.Debug.WriteLine("[Progress] 전체 진행률 업데이트 시작");
+
+        // 모든 과목의 오늘 학습시간과 TopicGroups 업데이트
+        foreach (var subject in SharedSubjectProgress)
         {
+            // ✅ 수정: 과목별 실제 측정 시간 조회
+            var subjectSeconds = Notea.Modules.Common.Helpers.DatabaseHelper.Instance.GetSubjectDailyTimeSeconds(today, subject.SubjectName);
+            totalTodaySeconds += subjectSeconds;
+
+            // ✅ 수정: 기존 TopicGroups를 기반으로 시간만 업데이트
+            var topicGroupsData = new ObservableCollection<TopicGroupViewModel>();
+            
             try
             {
-                var today = DateTime.Today;
-                int totalTodaySeconds = 0;
-
-                // 1. 모든 과목의 오늘 학습시간 업데이트
-                foreach (var subject in SharedSubjectProgress)
+                var dbHelper = Notea.Modules.Common.Helpers.DatabaseHelper.Instance;
+                
+                // 기존 TopicGroups를 순회하며 최신 시간으로 업데이트
+                foreach (var existingGroup in subject.TopicGroups)
                 {
-                    // 과목별 실제 측정 시간 조회
-                    var subjectSeconds = Notea.Modules.Common.Helpers.DatabaseHelper.Instance.GetSubjectDailyTimeSeconds(today, subject.SubjectName);
-                    subject.TodayStudyTimeSeconds = subjectSeconds;
-                    totalTodaySeconds += subjectSeconds;
+                    // 분류별 실제 측정 시간 조회
+                    var categorySeconds = existingGroup.CategoryId > 0
+                        ? dbHelper.GetCategoryDailyTimeSeconds(today, existingGroup.CategoryId)
+                        : GetTopicGroupTimeByName(today, subject.SubjectName, existingGroup.GroupTitle);
 
-                    System.Diagnostics.Debug.WriteLine($"[Progress] 과목 '{subject.SubjectName}' 업데이트: {subjectSeconds}초");
-
-                    // 2. 각 과목의 TopicGroups 업데이트
-                    foreach (var topicGroup in subject.TopicGroups)
+                    var updatedTopicGroup = new TopicGroupViewModel
                     {
-                        // 분류별 실제 측정 시간 조회
-                        var categorySeconds = topicGroup.CategoryId > 0
-                            ? Notea.Modules.Common.Helpers.DatabaseHelper.Instance.GetCategoryDailyTimeSeconds(today, topicGroup.CategoryId)
-                            : GetTopicGroupTimeByName(today, subject.SubjectName, topicGroup.GroupTitle);
+                        GroupTitle = existingGroup.GroupTitle,
+                        TotalStudyTimeSeconds = categorySeconds,
+                        IsCompleted = existingGroup.IsCompleted,
+                        CategoryId = existingGroup.CategoryId,
+                        ParentSubjectName = subject.SubjectName,
+                        Topics = existingGroup.Topics
+                    };
 
-                        // TopicGroup 시간 업데이트
-                        topicGroup.SetParentTodayStudyTime(subjectSeconds);
+                    // 부모 과목의 오늘 학습시간 설정
+                    updatedTopicGroup.SetParentTodayStudyTime(subjectSeconds);
 
-                        // 실시간 표시 업데이트
-                        if (topicGroup.GetType().GetMethod("UpdateRealTimeDisplay") != null)
-                        {
-                            topicGroup.GetType().GetMethod("UpdateRealTimeDisplay").Invoke(topicGroup, null);
-                        }
+                    topicGroupsData.Add(updatedTopicGroup);
 
-                        System.Diagnostics.Debug.WriteLine($"[Progress] 분류 '{topicGroup.GroupTitle}' 업데이트: {categorySeconds}초, 진행률: {topicGroup.ProgressRatio:P1}");
-                    }
+                    System.Diagnostics.Debug.WriteLine($"[Progress] 분류 '{updatedTopicGroup.GroupTitle}' 시간 업데이트: {categorySeconds}초");
                 }
-
-                // 3. 전체 통계 업데이트
-                OnPropertyChanged(nameof(TotalStudyTimeDisplay));
-
-                System.Diagnostics.Debug.WriteLine($"[Progress] 전체 업데이트 완료 - 총 시간: {TimeSpan.FromSeconds(totalTodaySeconds):hh\\:mm\\:ss}");
             }
             catch (Exception ex)
             {
-                System.Diagnostics.Debug.WriteLine($"[Progress Error] 전체 진행률 업데이트 실패: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[Progress] 과목 '{subject.SubjectName}' TopicGroups 업데이트 오류: {ex.Message}");
+                // 오류 발생 시 기존 TopicGroups 유지
+                topicGroupsData = subject.TopicGroups;
             }
+
+            // ✅ 핵심 수정: UpdateFromDatabase 메서드 호출
+            subject.UpdateFromDatabase(subjectSeconds, topicGroupsData);
+
+            System.Diagnostics.Debug.WriteLine($"[Progress] 과목 '{subject.SubjectName}' 업데이트 완료: {subjectSeconds}초, TopicGroups: {topicGroupsData.Count}개");
         }
 
-        // ✅ 신규: 누락된 메소드 구현
+        // 전체 통계 업데이트
+        OnPropertyChanged(nameof(TotalStudyTimeDisplay));
+
+        System.Diagnostics.Debug.WriteLine($"[Progress] 전체 업데이트 완료 - 총 시간: {TimeSpan.FromSeconds(totalTodaySeconds):hh\\:mm\\:ss}");
+    }
+    catch (Exception ex)
+    {
+        System.Diagnostics.Debug.WriteLine($"[Progress Error] 전체 진행률 업데이트 실패: {ex.Message}");
+    }
+}
+
         private int GetTopicGroupTimeByName(DateTime date, string subjectName, string groupTitle)
         {
             try
@@ -956,6 +1015,9 @@ private UserControl _headerContent;
                 return 0;
             }
         }
+
+        // ✅ 신규: 누락된 메소드 구현
+
 
         // 🆕 저장된 Daily Subject 데이터 복원 메소드 (실제 측정 시간만)
         private void RestoreDailySubjects()

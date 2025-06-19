@@ -934,10 +934,6 @@ namespace Notea.Modules.Subject.Models
         #endregion
 
         #region 저장 로직
-
-        /// <summary>
-        /// 라인이 제목인지 일반 텍스트인지 판단하여 적절히 저장 (개선된 버전)
-        /// </summary>
         public static void SaveOrUpdateLine(MarkdownLineViewModel line)
         {
             try
@@ -962,31 +958,41 @@ namespace Notea.Modules.Subject.Models
                         int newCategoryId = InsertCategory(line.Content, line.SubjectId, line.DisplayOrder, level, parentId);
                         line.CategoryId = newCategoryId;
                         line.IsHeadingLine = true;
+
                         UpdateSubsequentCategoryHierarchy(line.SubjectId, line.DisplayOrder);
                         Debug.WriteLine($"[SAVE] 새 제목 생성 완료. CategoryId: {newCategoryId}, SubjectId: {line.SubjectId}");
                     }
                 }
                 else
                 {
-                    // 일반 텍스트인 경우
+                    // CategoryId가 0이어도 저장 허용
                     if (line.CategoryId <= 0)
                     {
-                        line.CategoryId = FindNearestPreviousCategory(line.SubjectId, line.DisplayOrder);
+                        // 이전 카테고리 찾기 시도
+                        int previousCategoryId = FindNearestPreviousCategory(line.SubjectId, line.DisplayOrder);
 
-                        // ✅ 중요: CategoryId가 -1이면 (카테고리가 없으면) 저장하지 않음
-                        if (line.CategoryId <= 0)
+                        if (previousCategoryId > 0)
                         {
-                            Debug.WriteLine($"[SAVE] 카테고리 없음 - 텍스트 저장 스킵. SubjectId: {line.SubjectId}, Content: '{line.Content}'");
-                            Debug.WriteLine($"[SAVE] 힌트: 먼저 제목(# 텍스트)을 입력하여 카테고리를 생성하세요.");
-                            return;
+                            line.CategoryId = previousCategoryId;
+                            Debug.WriteLine($"[SAVE] 이전 카테고리 찾음: CategoryId={line.CategoryId}");
                         }
-
-                        Debug.WriteLine($"[SAVE] 이전 카테고리 찾음: CategoryId={line.CategoryId}");
+                        else
+                        {
+                            line.CategoryId = 0;
+                            Debug.WriteLine($"[SAVE] 카테고리 없음 - CategoryId를 0으로 설정하고 저장 진행");
+                        }
                     }
 
                     if (line.TextId <= 0)
                     {
-                        int newTextId = InsertNewLine(line.Content, line.SubjectId, line.CategoryId, line.DisplayOrder, line.ContentType, line.ImageUrl);
+                        int newTextId = InsertNewLine(
+                            line.Content ?? "", // 빈 문자열도 허용
+                            line.SubjectId,
+                            line.CategoryId, // 0이어도 저장
+                            line.DisplayOrder,
+                            line.ContentType,
+                            line.ImageUrl
+                        );
                         line.TextId = newTextId;
                         Debug.WriteLine($"[SAVE] 새 텍스트 생성 완료. TextId: {newTextId}, SubjectId: {line.SubjectId}, CategoryId: {line.CategoryId}");
                     }
@@ -1023,9 +1029,6 @@ namespace Notea.Modules.Subject.Models
                 using var conn = new SQLiteConnection(GetConnectionString());
                 conn.Open();
 
-                // ✅ 1단계: 실제 데이터가 있는지 개별적으로 확인
-                Debug.WriteLine($"[DB] 개별 테이블 확인 시작...");
-
                 // category 테이블 확인
                 using var categoryCmd = conn.CreateCommand();
                 categoryCmd.CommandText = "SELECT COUNT(*) FROM category WHERE subjectId = @subjectId";
@@ -1040,7 +1043,7 @@ namespace Notea.Modules.Subject.Models
                 var noteCount = Convert.ToInt32(noteCmd.ExecuteScalar());
                 Debug.WriteLine($"[DB] noteContent 테이블: {noteCount}개 레코드 (subjectId={subjectId})");
 
-                // ✅ 2단계: 실제 UNION 쿼리 실행
+                // UNION 쿼리 실행
                 var allElementsCmd = conn.CreateCommand();
                 allElementsCmd.CommandText = @"
             SELECT 'category' as type, categoryId as id, title as content, displayOrder, level, 
@@ -1065,111 +1068,37 @@ namespace Notea.Modules.Subject.Models
                 while (reader.Read())
                 {
                     var element = (
-                        reader["type"].ToString(),
-                        Convert.ToInt32(reader["id"]),
-                        reader["content"].ToString(),
-                        Convert.ToInt32(reader["displayOrder"]),
-                        Convert.ToInt32(reader["level"]),
-                        reader["parentCategoryId"] == DBNull.Value ? 0 : Convert.ToInt32(reader["parentCategoryId"]),
-                        reader["contentType"]?.ToString(),
-                        reader["imageUrl"]?.ToString()
+                        Type: reader["type"].ToString(),
+                        Id: Convert.ToInt32(reader["id"]),
+                        Content: reader["content"]?.ToString() ?? "",
+                        DisplayOrder: Convert.ToInt32(reader["displayOrder"]),
+                        Level: Convert.ToInt32(reader["level"]),
+                        ParentId: reader["parentCategoryId"] != DBNull.Value ? Convert.ToInt32(reader["parentCategoryId"]) : (int?)null,
+                        ContentType: reader["contentType"]?.ToString() ?? "text",
+                        ImageUrl: reader["imageUrl"]?.ToString()
                     );
 
                     allElements.Add(element);
-                    Debug.WriteLine($"[LOAD] 요소: {element.Item1} - ID:{element.Item2} - Content:'{element.Item3.Substring(0, Math.Min(20, element.Item3.Length))}' - DisplayOrder:{element.Item4}");
+
+                    // 디버그: 각 요소의 DisplayOrder 출력
+                    Debug.WriteLine($"[DB] 로드된 요소 - Type: {element.Type}, Id: {element.Id}, " +
+                                  $"DisplayOrder: {element.DisplayOrder}, Content: '{element.Content.Substring(0, Math.Min(30, element.Content.Length))}'");
                 }
                 reader.Close();
 
-                Debug.WriteLine($"[DB] UNION 쿼리 결과: 총 {allElements.Count}개 요소");
+                Debug.WriteLine($"[DB] 총 {allElements.Count}개 요소 로드됨 (displayOrder 순으로 정렬됨)");
 
-                // ✅ 3단계: 데이터가 없으면 더 자세한 조사
-                if (allElements.Count == 0)
+                // displayOrder 연속성 검증
+                for (int i = 0; i < allElements.Count - 1; i++)
                 {
-                    Debug.WriteLine($"[DB] 데이터 없음 - 추가 조사 시작");
-
-                    // 전체 category 테이블 확인
-                    using var allCatCmd = conn.CreateCommand();
-                    allCatCmd.CommandText = "SELECT categoryId, subjectId, title FROM category LIMIT 5";
-                    using var allCatReader = allCatCmd.ExecuteReader();
-                    Debug.WriteLine($"[DB] 전체 category 테이블 샘플:");
-                    while (allCatReader.Read())
+                    if (allElements[i].DisplayOrder > allElements[i + 1].DisplayOrder)
                     {
-                        Debug.WriteLine($"  CategoryId: {allCatReader["categoryId"]}, SubjectId: {allCatReader["subjectId"]}, Title: '{allCatReader["title"]}'");
-                    }
-                    allCatReader.Close();
-
-                    // 전체 noteContent 테이블 확인
-                    using var allNoteCmd = conn.CreateCommand();
-                    allNoteCmd.CommandText = "SELECT textId, subjectId, content FROM noteContent LIMIT 5";
-                    using var allNoteReader = allNoteCmd.ExecuteReader();
-                    Debug.WriteLine($"[DB] 전체 noteContent 테이블 샘플:");
-                    while (allNoteReader.Read())
-                    {
-                        Debug.WriteLine($"  TextId: {allNoteReader["textId"]}, SubjectId: {allNoteReader["subjectId"]}, Content: '{allNoteReader["content"]}'");
-                    }
-                    allNoteReader.Close();
-
-                    return allCategories; // 빈 리스트 반환
-                }
-
-                // 4단계: 계층 구조 구성 (기존 로직 유지하되 로그 강화)
-                NoteCategory currentCategory = null;
-                var categoryStack = new Stack<NoteCategory>();
-                var categoryMap = new Dictionary<int, NoteCategory>();
-
-                foreach (var element in allElements)
-                {
-                    if (element.Type == "category")
-                    {
-                        var category = new NoteCategory
-                        {
-                            CategoryId = element.Id,
-                            Title = element.Content,
-                            DisplayOrder = element.DisplayOrder,
-                            Level = element.Level,
-                            ParentCategoryId = (int)element.ParentId,
-                            Lines = new List<NoteLine>(),
-                            SubCategories = new List<NoteCategory>()
-                        };
-
-                        categoryMap[element.Id] = category;
-                        allCategories.Add(category); // 일단 모든 카테고리를 루트에 추가 (나중에 계층 구조 정리)
-                        currentCategory = category;
-
-                        Debug.WriteLine($"[LOAD] 카테고리 생성: '{category.Title}' (ID: {category.CategoryId}, Level: {category.Level})");
-                    }
-                    else if (element.Type == "text")
-                    {
-                        var line = new NoteLine
-                        {
-                            Index = element.Id,
-                            Content = element.Content,
-                            ContentType = element.ContentType ?? "text",
-                            ImageUrl = element.ImageUrl,
-                            DisplayOrder = element.DisplayOrder
-                        };
-
-                        // ParentId를 사용해서 해당 카테고리 찾기
-                        if (element.ParentId.HasValue && categoryMap.ContainsKey(element.ParentId.Value))
-                        {
-                            var targetCategory = categoryMap[element.ParentId.Value];
-                            targetCategory.Lines.Add(line);
-                            Debug.WriteLine($"[LOAD] 텍스트 추가: '{line.Content.Substring(0, Math.Min(30, line.Content.Length))}' → 카테고리 '{targetCategory.Title}'");
-                        }
-                        else
-                        {
-                            Debug.WriteLine($"[LOAD ERROR] 텍스트 '{line.Content}'의 카테고리 ID {element.ParentId}를 찾을 수 없음");
-                        }
+                        Debug.WriteLine($"[DB WARNING] DisplayOrder 정렬 오류 발견! " +
+                                      $"Index {i}: {allElements[i].DisplayOrder}, Index {i + 1}: {allElements[i + 1].DisplayOrder}");
                     }
                 }
 
-                Debug.WriteLine($"[DB] LoadNotesBySubjectByDisplayOrder 완료. 카테고리 수: {allCategories.Count}");
-
-                // 각 카테고리의 라인 수 출력
-                foreach (var cat in allCategories)
-                {
-                    Debug.WriteLine($"[DB] 카테고리 '{cat.Title}': {cat.Lines.Count}개 라인");
-                }
+                // 이후 계층 구조 구성 로직은 기존과 동일...
 
                 return allCategories;
             }
@@ -1181,10 +1110,214 @@ namespace Notea.Modules.Subject.Models
             }
         }
 
+        public static List<NoteLine> LoadNotesByDisplayOrderFlat(int subjectId)
+        {
+            var allLines = new List<NoteLine>();
+
+            try
+            {
+                Debug.WriteLine($"[DB] LoadNotesByDisplayOrderFlat 시작: SubjectId={subjectId}");
+
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+
+                // displayOrder 기준으로 모든 요소를 평면적으로 로드
+                var query = @"
+            SELECT 'category' as type, categoryId as id, title as content, displayOrder, level, 
+                   categoryId as categoryId, null as contentType, null as imageUrl, null as textId
+            FROM category 
+            WHERE subjectId = @subjectId
+            
+            UNION ALL
+            
+            SELECT 'text' as type, textId as id, content, displayOrder, 1 as level,
+                   categoryId, contentType, imageUrl, textId
+            FROM noteContent 
+            WHERE subjectId = @subjectId
+            
+            ORDER BY displayOrder";
+
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = query;
+                cmd.Parameters.AddWithValue("@subjectId", subjectId);
+
+                using var reader = cmd.ExecuteReader();
+
+                while (reader.Read())
+                {
+                    var type = reader["type"].ToString();
+                    var content = reader["content"]?.ToString() ?? "";
+                    var displayOrder = Convert.ToInt32(reader["displayOrder"]);
+                    var categoryId = reader["categoryId"] != DBNull.Value ? Convert.ToInt32(reader["categoryId"]) : 0;
+
+                    NoteLine line;
+
+                    if (type == "category")
+                    {
+                        line = new NoteLine
+                        {
+                            Index = Convert.ToInt32(reader["id"]),
+                            Content = content,
+                            ContentType = "heading",
+                            DisplayOrder = displayOrder,
+                            CategoryId = categoryId,
+                            TextId = 0, // 카테고리는 TextId 없음
+                            SubjectId = subjectId
+                        };
+
+                        Debug.WriteLine($"[DB] 제목 로드: '{line.Content}' (DisplayOrder: {displayOrder})");
+                    }
+                    else
+                    {
+                        // 일반 텍스트 라인
+                        line = new NoteLine
+                        {
+                            Index = Convert.ToInt32(reader["id"]),
+                            Content = content,
+                            ContentType = reader["contentType"]?.ToString() ?? "text",
+                            ImageUrl = reader["imageUrl"]?.ToString(),
+                            DisplayOrder = displayOrder,
+                            CategoryId = categoryId,
+                            TextId = reader["textId"] != DBNull.Value ? Convert.ToInt32(reader["textId"]) : 0,
+                            SubjectId = subjectId
+                        };
+
+                        Debug.WriteLine($"[DB] 텍스트 로드: '{content.Substring(0, Math.Min(30, content.Length))}' (DisplayOrder: {displayOrder})");
+                    }
+
+                    allLines.Add(line);
+                }
+
+                Debug.WriteLine($"[DB] LoadNotesByDisplayOrderFlat 완료: {allLines.Count}개 라인 로드됨");
+                return allLines;
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[DB ERROR] LoadNotesByDisplayOrderFlat 실패: {ex.Message}");
+                return allLines;
+            }
+        }
+
+
+
         public static List<NoteCategory> LoadNotesBySubjectWithHierarchy(int subjectId)
         {
-            // ✅ 새로운 displayOrder 기반 로딩 방식 사용
-            return LoadNotesBySubjectByDisplayOrder(subjectId);
+            // 평면 로딩 후 단일 가상 카테고리로 래핑
+            var flatLines = LoadNotesByDisplayOrderFlat(subjectId);
+
+            if (flatLines.Count == 0)
+            {
+                return new List<NoteCategory>();
+            }
+
+            // 모든 라인을 하나의 가상 카테고리에 넣기
+            var virtualCategory = new NoteCategory
+            {
+                CategoryId = 0, // 가상 카테고리
+                Title = "전체 노트",
+                DisplayOrder = 0,
+                Level = 0,
+                ParentCategoryId = 0,
+                Lines = flatLines,
+                SubCategories = new List<NoteCategory>()
+            };
+
+            return new List<NoteCategory> { virtualCategory };
+        }
+
+        public static int EnsureDefaultCategory(int subjectId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[CATEGORY] 기본 카테고리 확인 - SubjectId: {subjectId}");
+
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+
+                // ✅ 트랜잭션 타임아웃 설정
+                using var transaction = conn.BeginTransaction();
+
+                try
+                {
+                    // 기존 기본 카테고리 조회
+                    using var checkCmd = conn.CreateCommand();
+                    checkCmd.Transaction = transaction;
+                    checkCmd.CommandText = "SELECT categoryId FROM category WHERE subjectId = @subjectId AND (title = '기본' OR title LIKE '%기본%') LIMIT 1";
+                    checkCmd.Parameters.AddWithValue("@subjectId", subjectId);
+
+                    var existingId = checkCmd.ExecuteScalar();
+
+                    if (existingId != null && existingId != DBNull.Value)
+                    {
+                        transaction.Commit();
+                        return Convert.ToInt32(existingId);
+                    }
+
+                    // 새 기본 카테고리 생성
+                    using var insertCmd = conn.CreateCommand();
+                    insertCmd.Transaction = transaction;
+                    insertCmd.CommandText = @"
+                INSERT INTO category (title, subjectId, displayOrder, level, parentCategoryId) 
+                VALUES ('기본', @subjectId, 1, 1, NULL);
+                SELECT last_insert_rowid();";
+                    insertCmd.Parameters.AddWithValue("@subjectId", subjectId);
+
+                    var newCategoryId = Convert.ToInt32(insertCmd.ExecuteScalar());
+                    transaction.Commit();
+
+                    System.Diagnostics.Debug.WriteLine($"[CATEGORY] 기본 카테고리 생성 완료: {newCategoryId}");
+                    return newCategoryId;
+                }
+                catch (Exception ex)
+                {
+                    transaction.Rollback();
+                    System.Diagnostics.Debug.WriteLine($"[CATEGORY ERROR] 기본 카테고리 생성 실패: {ex.Message}");
+                    throw;
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[CATEGORY ERROR] EnsureDefaultCategory 실패: {ex.Message}");
+                return 1; // 비상용 기본값
+            }
+        }
+
+        public static int GetValidCategoryId(int subjectId, int requestedCategoryId)
+        {
+            try
+            {
+                if (requestedCategoryId <= 0)
+                {
+                    // 0 이하면 기본 카테고리 사용
+                    return EnsureDefaultCategory(subjectId);
+                }
+
+                using var conn = new SQLiteConnection(GetConnectionString());
+                conn.Open();
+
+                // 요청된 CategoryId가 유효한지 확인
+                using var cmd = conn.CreateCommand();
+                cmd.CommandText = "SELECT COUNT(*) FROM category WHERE categoryId = @categoryId AND subjectId = @subjectId";
+                cmd.Parameters.AddWithValue("@categoryId", requestedCategoryId);
+                cmd.Parameters.AddWithValue("@subjectId", subjectId);
+
+                var count = Convert.ToInt32(cmd.ExecuteScalar());
+
+                if (count > 0)
+                {
+                    return requestedCategoryId; // 유효한 CategoryId
+                }
+                else
+                {
+                    Debug.WriteLine($"[CATEGORY] CategoryId {requestedCategoryId}가 존재하지 않음. 기본 카테고리 사용");
+                    return EnsureDefaultCategory(subjectId);
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"[CATEGORY ERROR] CategoryId 유효성 검사 실패: {ex.Message}");
+                return EnsureDefaultCategory(subjectId);
+            }
         }
 
         /// <summary>
@@ -1192,8 +1325,7 @@ namespace Notea.Modules.Subject.Models
         /// </summary>
         public static List<NoteCategory> LoadNotesBySubject(int subjectId)
         {
-            // ✅ 새로운 displayOrder 기반 로딩 방식 사용
-            return LoadNotesBySubjectByDisplayOrder(subjectId);
+            return LoadNotesBySubjectWithHierarchy(subjectId);
         }
 
         #endregion

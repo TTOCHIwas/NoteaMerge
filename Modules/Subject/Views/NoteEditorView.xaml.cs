@@ -111,12 +111,13 @@ namespace Notea.Modules.Subject.Views
             try
             {
                 // Helpers/DatabaseHelper의 ExecuteSelect 사용하여 과목명 조회
-                string query = $"SELECT title FROM subject WHERE subJectId = {subjectId}";
+                string query = $"SELECT Name FROM subject WHERE subjectId = {subjectId}";
                 var result = Notea.Helpers.DatabaseHelper.ExecuteSelect(query);
 
                 if (result.Rows.Count > 0)
                 {
-                    return result.Rows[0]["title"].ToString();
+                    // 수정: "title" → "Name"
+                    return result.Rows[0]["Name"].ToString();
                 }
 
                 return null;

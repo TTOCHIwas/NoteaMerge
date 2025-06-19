@@ -23,12 +23,12 @@
                               MouseLeftButtonUp="SubjectGrid_MouseLeftButtonUp">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
-                                <ColumnDefinition Width="20" />
+                                <ColumnDefinition Width="auto" />
                             </Grid.ColumnDefinitions>
-                            <TextBlock Grid.Column="0" Text="{Binding SubjectName}" Style="{StaticResource subjectTitleStyle}" VerticalAlignment="Center" Margin="10, 20"
+                            <TextBlock Grid.Column="0" Text="{Binding SubjectName}" Style="{StaticResource subjectTitleStyle}" VerticalAlignment="Center" Margin="20"
                                        x:Name="SubjectNameText"/>
                             <!-- 과목에 TopicGroups가 있을 때만 펼치기 버튼 표시 -->
-                            <Button Grid.Column="1" Command="{Binding ToggleCommand}" Style="{StaticResource FolderButtonStyle}" VerticalAlignment="Center" Margin="10, 0"
+                            <ToggleButton Grid.Column="1" Command="{Binding ToggleCommand}" Style="{StaticResource FolderToggleButtonStyle}" VerticalAlignment="Center" Margin="20, 0"
                                     Visibility="{Binding TopicGroups, Converter={StaticResource HasItemsToVisibilityConverter}}"/>
                         </Grid>
 

@@ -14,9 +14,7 @@
     </UserControl.Resources>
 
     <!-- ViewModel 지정 -->
-    <UserControl.DataContext>
-        <vm:SubjectListPageViewModel />
-    </UserControl.DataContext>
+
 
     <!-- 재사용 가능한 컴포넌트 삽입 -->
     <common:SubjectListView />

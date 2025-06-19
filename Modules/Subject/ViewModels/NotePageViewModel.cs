@@ -79,65 +79,65 @@ namespace Notea.Modules.Subject.ViewModels
             {
                 System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] LoadNote 시작 - SubjectId: {subjectId}");
 
-                // 계층 구조를 지원하는 로드 메서드 사용
+                // ✅ 새로운 방식: 평면적 DisplayOrder 기반 로딩만 사용
                 var noteData = NoteRepository.LoadNotesBySubjectWithHierarchy(subjectId);
+                System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] 로드 결과 - 카테고리 수: {noteData?.Count ?? 0}");
 
-                System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] LoadNotesBySubjectWithHierarchy 결과 - 카테고리 수: {noteData?.Count ?? 0}");
-
-                // 데이터가 없으면 기본 로드 메서드 시도
-                if (noteData == null || noteData.Count == 0)
-                {
-                    System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] 계층 구조 로딩 실패, 기본 메소드 시도");
-                    noteData = NoteRepository.LoadNotesBySubject(subjectId);
-                    System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] LoadNotesBySubject 결과 - 카테고리 수: {noteData?.Count ?? 0}");
-                }
-
-                // EditorViewModel 생성
-                System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] NoteEditorViewModel 생성 중...");
-                EditorViewModel = new NoteEditorViewModel(noteData);
-
-                // ✅ 중요: SubjectId 설정
-                if (EditorViewModel != null)
-                {
-                    EditorViewModel.SetSubjectId(subjectId); // 새로 추가된 메소드 사용
-                    System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] EditorViewModel SubjectId 설정 완료: {subjectId}");
-                }
-
-                // ❌ 기본 카테고리 생성 로직 완전 제거
-                // 새 과목인 경우 빈 상태에서 시작하도록 함
-
-                // 로딩된 데이터 상세 정보 출력
+                // 로딩된 데이터 상세 정보 출력 (디버깅용)
                 if (noteData != null && noteData.Count > 0)
                 {
                     foreach (var category in noteData)
                     {
                         System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] 카테고리: '{category.Title}' (ID: {category.CategoryId}), 라인 수: {category.Lines?.Count ?? 0}");
-                        if (category.Lines != null)
+
+                        if (category.Lines != null && category.Lines.Count > 0)
                         {
-                            foreach (var line in category.Lines.Take(3)) // 처음 3개만 출력
+                            // 처음 5개 라인만 출력 (너무 많으면 로그가 길어짐)
+                            var linesToShow = category.Lines.Take(5);
+                            foreach (var line in linesToShow)
                             {
-                                System.Diagnostics.Debug.WriteLine($"  - 라인: '{line.Content?.Substring(0, Math.Min(50, line.Content?.Length ?? 0))}'");
+                                var preview = line.Content?.Length > 50 ?
+                                    line.Content.Substring(0, 50) + "..." :
+                                    line.Content ?? "";
+                                System.Diagnostics.Debug.WriteLine($"  - 라인 (DisplayOrder: {line.DisplayOrder}): '{preview}'");
+                            }
+
+                            if (category.Lines.Count > 5)
+                            {
+                                System.Diagnostics.Debug.WriteLine($"  - ... 외 {category.Lines.Count - 5}개 라인");
                             }
                         }
                     }
                 }
                 else
                 {
-                    System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] SubjectId {subjectId}에 대한 필기 데이터 없음 - 새 과목으로 시작");
+                    System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] SubjectId {subjectId}에 대한 필기 데이터 없음");
                 }
 
                 // EditorViewModel 생성
                 System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] NoteEditorViewModel 생성 중...");
                 EditorViewModel = new NoteEditorViewModel(noteData);
 
-                // ✅ SubjectId 강제 설정 (중요!)
+                // ✅ SubjectId 설정
                 if (EditorViewModel != null)
                 {
-                    EditorViewModel.SubjectId = subjectId;
-                    System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] EditorViewModel SubjectId 설정: {subjectId}");
+                    EditorViewModel.SetSubjectId(subjectId);
+                    System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] EditorViewModel SubjectId 설정 완료: {subjectId}");
                 }
 
-                System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] EditorViewModel 생성 완료 - Lines 수: {EditorViewModel?.Lines?.Count ?? 0}");
+                // ✅ 최종 검증 로그
+                if (EditorViewModel != null)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] EditorViewModel 검증:");
+                    System.Diagnostics.Debug.WriteLine($"  - SubjectId: {EditorViewModel.SubjectId}");
+                    System.Diagnostics.Debug.WriteLine($"  - Lines.Count: {EditorViewModel.Lines?.Count ?? 0}");
+
+                    if (EditorViewModel.Lines != null && EditorViewModel.Lines.Count > 0)
+                    {
+                        var firstLine = EditorViewModel.Lines[0];
+                        System.Diagnostics.Debug.WriteLine($"  - 첫 번째 라인: SubjectId={firstLine.SubjectId}, Content='{firstLine.Content}', CategoryId={firstLine.CategoryId}");
+                    }
+                }
 
                 // SearchViewModel 초기화
                 SearchViewModel = new SearchViewModel(EditorViewModel);
@@ -148,12 +148,22 @@ namespace Notea.Modules.Subject.ViewModels
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] LoadNote 오류: {ex.Message}");
+                System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] 스택 트레이스: {ex.StackTrace}");
 
                 // 오류 발생 시 빈 EditorViewModel 생성
-                EditorViewModel = new NoteEditorViewModel();
-                EditorViewModel.SetSubjectId(subjectId);
-                SearchViewModel = new SearchViewModel(EditorViewModel);
-                SearchViewModel.SearchHighlightRequested += OnSearchHighlightRequested;
+                try
+                {
+                    System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] 오류 복구 시도");
+                    EditorViewModel = new NoteEditorViewModel();
+                    EditorViewModel.SetSubjectId(subjectId);
+                    SearchViewModel = new SearchViewModel(EditorViewModel);
+                    SearchViewModel.SearchHighlightRequested += OnSearchHighlightRequested;
+                    System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] 오류 복구 완료");
+                }
+                catch (Exception recoveryEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] 오류 복구 실패: {recoveryEx.Message}");
+                }
             }
         }
 
@@ -175,39 +185,36 @@ namespace Notea.Modules.Subject.ViewModels
                     // 강제로 빈 EditorViewModel 생성
                     EditorViewModel = new NoteEditorViewModel();
                     EditorViewModel.SetSubjectId(subjectId);
+
+                    if (SearchViewModel == null)
+                    {
+                        SearchViewModel = new SearchViewModel(EditorViewModel);
+                        SearchViewModel.SearchHighlightRequested += OnSearchHighlightRequested;
+                    }
                 }
 
                 // ✅ SubjectId가 제대로 설정되었는지 최종 확인
                 if (EditorViewModel.SubjectId != subjectId)
                 {
-                    System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] SubjectId 불일치 감지! 재설정 중...");
-                    EditorViewModel.SetSubjectId(subjectId);
+                    System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] SubjectId 불일치 감지! Expected: {subjectId}, Actual: {EditorViewModel.SubjectId}");
+                    EditorViewModel.SubjectId = subjectId;
+                    System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] SubjectId 강제 수정 완료");
                 }
 
-                // SearchViewModel 확인
-                if (SearchViewModel == null)
-                {
-                    SearchViewModel = new SearchViewModel(EditorViewModel);
-                    SearchViewModel.SearchHighlightRequested += OnSearchHighlightRequested;
-                }
-
-                // PropertyChanged 이벤트 강제 발생
-                OnPropertyChanged(nameof(EditorViewModel));
-                OnPropertyChanged(nameof(SearchViewModel));
-
+                // ✅ 최종 상태 출력
                 System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] SetSubject 완료");
                 System.Diagnostics.Debug.WriteLine($"  - SubjectTitle: '{SubjectTitle}'");
-                System.Diagnostics.Debug.WriteLine($"  - EditorViewModel.SubjectId: {EditorViewModel?.SubjectId}");
-                System.Diagnostics.Debug.WriteLine($"  - EditorViewModel.Lines.Count: {EditorViewModel?.Lines?.Count}");
+                System.Diagnostics.Debug.WriteLine($"  - EditorViewModel.SubjectId: {EditorViewModel?.SubjectId ?? -1}");
+                System.Diagnostics.Debug.WriteLine($"  - EditorViewModel.Lines.Count: {EditorViewModel?.Lines?.Count ?? 0}");
 
-                // ✅ 각 라인의 SubjectId도 확인
-                if (EditorViewModel?.Lines != null)
+                if (EditorViewModel?.Lines?.Count > 0)
                 {
-                    foreach (var line in EditorViewModel.Lines.Take(3)) // 처음 3개만
-                    {
-                        System.Diagnostics.Debug.WriteLine($"  - Line SubjectId: {line.SubjectId}, Content: '{line.Content?.Substring(0, Math.Min(15, line.Content?.Length ?? 0))}'");
-                    }
+                    var firstLine = EditorViewModel.Lines[0];
+                    System.Diagnostics.Debug.WriteLine($"  - 첫 번째 라인: SubjectId={firstLine.SubjectId}, Content='{firstLine.Content}', CategoryId={firstLine.CategoryId}");
                 }
+
+                OnPropertyChanged(nameof(EditorViewModel));
+                OnPropertyChanged(nameof(SearchViewModel));
             }
             catch (Exception ex)
             {
