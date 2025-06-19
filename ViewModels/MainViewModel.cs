@@ -104,6 +104,9 @@ namespace Notea.ViewModels
                     System.Windows.Threading.DispatcherPriority.Loaded,
                     new Action(() => {
                         _notePageVM.ScrollToCategory(categoryId);
+
+                        // ✅ 추가: 스크롤 완료 후 타이머의 활성 카테고리 설정
+                        SetTimerActiveCategory(categoryId, subjectName);
                     })
                 );
 
@@ -122,6 +125,48 @@ namespace Notea.ViewModels
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] Category 필기 화면 이동 오류: {ex.Message}");
             }
         }
+
+        private void SetTimerActiveCategory(int categoryId, string subjectName)
+        {
+            try
+            {
+                // RightSidebarViewModel 찾기
+                if (_rightSidebarViewModel == null)
+                {
+                    _rightSidebarViewModel = FindRightSidebarViewModel();
+                }
+
+                if (_rightSidebarViewModel != null)
+                {
+                    // 타이머의 활성 카테고리 설정
+                    _rightSidebarViewModel.SetActiveCategory(categoryId, subjectName);
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] 타이머 활성 카테고리 설정 완료: CategoryId={categoryId}, Subject={subjectName}");
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] RightSidebarViewModel을 찾을 수 없어 타이머 설정 실패");
+
+                    // RightSidebarViewModel을 찾지 못한 경우 한 번만 재시도
+                    System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(
+                        System.Windows.Threading.DispatcherPriority.Background,
+                        new Action(() => {
+                            // 한 번 더 시도하되, 실패해도 로그를 출력하지 않음
+                            var retryRsvm = FindRightSidebarViewModel();
+                            if (retryRsvm != null)
+                            {
+                                retryRsvm.SetActiveCategory(categoryId, subjectName);
+                                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 재시도로 타이머 활성 카테고리 설정 완료: CategoryId={categoryId}");
+                            }
+                        })
+                    );
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] 타이머 활성 카테고리 설정 오류: {ex.Message}");
+            }
+        }
+
         public ICommand NavigateToNoteEditorWithCategoryCommand { get; }
 
 
