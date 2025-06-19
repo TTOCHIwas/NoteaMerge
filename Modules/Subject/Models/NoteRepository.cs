@@ -423,9 +423,6 @@ namespace Notea.Modules.Subject.Models
             }
         }
 
-        /// <summary>
-        /// 카테고리 삭제
-        /// </summary>
         public static void DeleteCategory(int categoryId, bool deleteTexts = true)
         {
             try
@@ -437,24 +434,64 @@ namespace Notea.Modules.Subject.Models
                     return;
                 }
 
+                Debug.WriteLine($"[DB] 카테고리 삭제 시작: CategoryId={categoryId}");
+
                 using var conn = new SQLiteConnection(GetConnectionString());
                 conn.Open();
                 using var transaction = conn.BeginTransaction();
 
                 try
                 {
+                    // ✅ 1단계: StudySession 테이블에서 CategoryId 참조 제거
+                    var updateStudySessionCmd = conn.CreateCommand();
+                    updateStudySessionCmd.Transaction = transaction;
+                    updateStudySessionCmd.CommandText = @"
+                UPDATE StudySession 
+                SET CategoryId = NULL 
+                WHERE CategoryId = @categoryId";
+                    updateStudySessionCmd.Parameters.AddWithValue("@categoryId", categoryId);
+                    int updatedSessions = updateStudySessionCmd.ExecuteNonQuery();
+
+                    // ✅ 2단계: DailySubject 테이블에서 CategoryId 참조 제거 (있다면)
+                    var updateDailySubjectCmd = conn.CreateCommand();
+                    updateDailySubjectCmd.Transaction = transaction;
+                    updateDailySubjectCmd.CommandText = "UPDATE DailySubject SET CategoryId = NULL WHERE CategoryId = @categoryId";
+                    updateDailySubjectCmd.Parameters.AddWithValue("@categoryId", categoryId);
+                    int updatedDailySubjects = updateDailySubjectCmd.ExecuteNonQuery();
+
+                    // ✅ 3단계: DailyTopicGroup 테이블에서 해당 카테고리 제거
+                    var deleteDailyTopicGroupCmd = conn.CreateCommand();
+                    deleteDailyTopicGroupCmd.Transaction = transaction;
+                    deleteDailyTopicGroupCmd.CommandText = "DELETE FROM DailyTopicGroup WHERE CategoryId = @categoryId";
+                    deleteDailyTopicGroupCmd.Parameters.AddWithValue("@categoryId", categoryId);
+                    int deletedDailyGroups = deleteDailyTopicGroupCmd.ExecuteNonQuery();
+
+                    // ✅ 4단계: DailyTopicItem 테이블에서 해당 카테고리 제거  
+                    var deleteDailyTopicItemCmd = conn.CreateCommand();
+                    deleteDailyTopicItemCmd.Transaction = transaction;
+                    deleteDailyTopicItemCmd.CommandText = "DELETE FROM DailyTopicItem WHERE CategoryId = @categoryId";
+                    deleteDailyTopicItemCmd.Parameters.AddWithValue("@categoryId", categoryId);
+                    int deletedDailyItems = deleteDailyTopicItemCmd.ExecuteNonQuery();
+
+                    // ✅ 5단계: TopicItem 테이블에서 해당 카테고리 제거
+                    var deleteTopicItemCmd = conn.CreateCommand();
+                    deleteTopicItemCmd.Transaction = transaction;
+                    deleteTopicItemCmd.CommandText = "DELETE FROM TopicItem WHERE categoryId = @categoryId";
+                    deleteTopicItemCmd.Parameters.AddWithValue("@categoryId", categoryId);
+                    int deletedTopicItems = deleteTopicItemCmd.ExecuteNonQuery();
+
+                    // ✅ 6단계: 카테고리의 텍스트 삭제
+                    int deletedTexts = 0;
                     if (deleteTexts)
                     {
-                        // 해당 카테고리의 모든 텍스트 삭제
                         var deleteTextsCmd = conn.CreateCommand();
                         deleteTextsCmd.Transaction = transaction;
                         deleteTextsCmd.CommandText = "DELETE FROM noteContent WHERE categoryId = @categoryId";
                         deleteTextsCmd.Parameters.AddWithValue("@categoryId", categoryId);
-                        int deletedTexts = deleteTextsCmd.ExecuteNonQuery();
-                        Debug.WriteLine($"[DB] 카테고리 {categoryId}의 텍스트 {deletedTexts}개 삭제됨");
+                        deletedTexts = deleteTextsCmd.ExecuteNonQuery();
                     }
 
-                    // 하위 카테고리들의 부모를 현재 카테고리의 부모로 변경
+                    // ✅ 7단계: 하위 카테고리들의 부모 재할당
                     var updateChildrenCmd = conn.CreateCommand();
                     updateChildrenCmd.Transaction = transaction;
                     updateChildrenCmd.CommandText = @"
@@ -466,7 +503,7 @@ namespace Notea.Modules.Subject.Models
                     updateChildrenCmd.Parameters.AddWithValue("@categoryId", categoryId);
                     int updatedChildren = updateChildrenCmd.ExecuteNonQuery();
 
-                    // 카테고리 삭제
+                    // ✅ 8단계: 카테고리 삭제 (이제 FOREIGN KEY constraint 없음)
                     var deleteCategoryCmd = conn.CreateCommand();
                     deleteCategoryCmd.Transaction = transaction;
                     deleteCategoryCmd.CommandText = "DELETE FROM category WHERE categoryId = @categoryId";
@@ -475,7 +512,14 @@ namespace Notea.Modules.Subject.Models
 
                     transaction.Commit();
 
-                    Debug.WriteLine($"[DB] 카테고리 삭제 완료: CategoryId={categoryId}, 하위 카테고리 재할당={updatedChildren}개");
+                    Debug.WriteLine($"[DB] 카테고리 삭제 완료: CategoryId={categoryId}");
+                    Debug.WriteLine($"  - StudySession CategoryId 제거: {updatedSessions}개");
+                    Debug.WriteLine($"  - DailySubject 참조 제거: {updatedDailySubjects}개");
+                    Debug.WriteLine($"  - DailyTopicGroup 삭제: {deletedDailyGroups}개");
+                    Debug.WriteLine($"  - DailyTopicItem 삭제: {deletedDailyItems}개");
+                    Debug.WriteLine($"  - TopicItem 삭제: {deletedTopicItems}개");
+                    Debug.WriteLine($"  - 텍스트 삭제: {deletedTexts}개");
+                    Debug.WriteLine($"  - 하위 카테고리 재할당: {updatedChildren}개");
                 }
                 catch (Exception ex)
                 {
@@ -495,9 +539,6 @@ namespace Notea.Modules.Subject.Models
 
         #region 텍스트 관련 메서드
 
-        /// <summary>
-        /// 새로운 일반 텍스트 라인 삽입 (timeId 올바르게 생성)
-        /// </summary>
         public static int InsertNewLine(string content, int subjectId, int categoryId, int displayOrder = -1,
             string contentType = "text", string imageUrl = null, Transaction transaction = null)
         {

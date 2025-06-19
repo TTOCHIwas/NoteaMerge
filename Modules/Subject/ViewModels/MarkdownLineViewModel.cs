@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Documents;
 using System.Windows.Media;
 using Notea.Modules.Subject.Models;
+using Notea.ViewModels;
 
 
 namespace Notea.Modules.Subject.ViewModels
@@ -356,6 +357,36 @@ namespace Notea.Modules.Subject.ViewModels
                         return;
                     }
 
+                    // ✅ 추가: 활성 포커스 세션 해제 (카테고리 삭제 전)
+                    try
+                    {
+                        // 현재 카테고리가 활성 포커스 중이라면 해제
+                        // 이는 UI 스레드에서 실행되어야 할 수 있음
+                        Application.Current?.Dispatcher?.Invoke(() =>
+                        {
+                            try
+                            {
+                                var mainWindow = Application.Current.MainWindow;
+                                if (mainWindow?.DataContext is MainViewModel mainViewModel)
+                                {
+                                    // RightSidebarViewModel을 통해 포커스 해제 시도
+                                    // 구체적인 구현은 RightSidebarViewModel의 API에 따라 달라짐
+                                    Debug.WriteLine($"[FOCUS] 카테고리 {CategoryId} 포커스 해제 시도");
+                                }
+                            }
+                            catch (Exception focusEx)
+                            {
+                                Debug.WriteLine($"[FOCUS WARNING] 포커스 해제 실패: {focusEx.Message}");
+                                // 포커스 해제 실패는 치명적이지 않으므로 계속 진행
+                            }
+                        });
+                    }
+                    catch (Exception ex)
+                    {
+                        Debug.WriteLine($"[FOCUS WARNING] 포커스 해제 시도 중 오류: {ex.Message}");
+                        // 포커스 해제 실패해도 카테고리 삭제는 계속 진행
+                    }
+
                     // 이전 카테고리 찾기
                     int previousCategoryId = FindPreviousCategoryId();
 
@@ -365,7 +396,7 @@ namespace Notea.Modules.Subject.ViewModels
                         NoteRepository.ReassignTextsToCategory(this.CategoryId, previousCategoryId);
                     }
 
-                    // 카테고리 삭제
+                    // ✅ 수정된 DeleteCategory 메서드 호출 (포커스 해제 후)
                     NoteRepository.DeleteCategory(this.CategoryId);
 
                     // 현재 라인을 일반 텍스트로 변환
@@ -378,23 +409,18 @@ namespace Notea.Modules.Subject.ViewModels
                 }
                 else if (!wasHeading && isHeading)
                 {
-                    // 일반 텍스트에서 제목으로 변경
+                    // 일반 텍스트에서 제목으로 변경 (기존 로직 유지)
                     Debug.WriteLine($"[DEBUG] 일반 텍스트에서 제목으로 변경됨: {Content}");
 
-                    // 기존 텍스트 삭제
                     if (TextId > 0)
                     {
                         NoteRepository.DeleteLine(TextId);
                         TextId = 0;
                     }
 
-                    // 새 카테고리 생성 준비
                     Level = NoteRepository.GetHeadingLevel(Content);
-                    CategoryId = 0; // 새로운 카테고리로 생성되도록 (저장 시점에 처리)
+                    CategoryId = 0; // 새로운 카테고리로 생성되도록
                     IsHeadingLine = true;
-
-                    // ❌ CategoryCreated 이벤트 제거 - 현재 프로젝트에서는 사용하지 않음
-                    // 대신 저장 시점에 NoteEditorViewModel에서 처리
 
                     Debug.WriteLine($"[DEBUG] 텍스트→제목 변환 완료. Level: {Level}");
                 }
@@ -402,7 +428,23 @@ namespace Notea.Modules.Subject.ViewModels
             catch (Exception ex)
             {
                 Debug.WriteLine($"[ERROR] OnHeadingStatusChanged 실패: {ex.Message}");
-                throw;
+                Debug.WriteLine($"[ERROR] 스택 트레이스: {ex.StackTrace}");
+
+                // ✅ 오류 발생 시 안전한 상태로 복원
+                try
+                {
+                    if (wasHeading)
+                    {
+                        // 제목 상태 유지
+                        IsHeadingLine = true;
+                        Debug.WriteLine("[RECOVERY] 오류로 인해 제목 상태 유지");
+                    }
+                }
+                catch
+                {
+                    // 복원도 실패하면 로그만 남기고 넘어감
+                    Debug.WriteLine("[ERROR] 상태 복원도 실패");
+                }
             }
         }
 

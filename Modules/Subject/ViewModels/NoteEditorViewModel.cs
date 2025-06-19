@@ -1222,7 +1222,7 @@ namespace Notea.Modules.Subject.ViewModels
         // 변경된 라인만 저장
         public void SaveAllChanges()
         {
-            lock (_saveLock) // 동시 저장 방지
+            lock (_saveLock)
             {
                 try
                 {
@@ -1230,15 +1230,36 @@ namespace Notea.Modules.Subject.ViewModels
                     if (editingLine != null)
                     {
                         Debug.WriteLine("[SAVE] 편집 중인 라인 감지 - 저장 지연");
-                        return; // 편집이 완료될 때까지 저장 지연
+                        return;
                     }
 
-                    // DisplayOrder가 변경된 라인도 포함
+                    // ✅ 디버깅: 제목별 조건 확인
+                    var headingLines = Lines.Where(l => l.IsHeadingLine).ToList();
+                    foreach (var heading in headingLines)
+                    {
+                        Debug.WriteLine($"[SAVE DEBUG] 제목 확인 - Content: '{heading.Content}', " +
+                                       $"CategoryId: {heading.CategoryId}, HasChanges: {heading.HasChanges}");
+                    }
+
                     var changedLines = Lines.Where(l =>
                         l.HasChanges ||
                         l.DisplayOrder != l.Index + 1 ||
-                        (l.TextId > 0 && !l.IsHeadingLine) // 기존 텍스트도 확인
+                        (l.TextId > 0 && !l.IsHeadingLine) ||
+                        (l.IsHeadingLine && l.CategoryId > 0) // ✅ 모든 제목 포함
                     ).ToList();
+
+                    // ✅ 디버깅: 저장 대상 라인 상세 로그
+                    Debug.WriteLine($"[SAVE] 저장 대상 라인 분석:");
+                    foreach (var line in changedLines)
+                    {
+                        string reason = "";
+                        if (line.HasChanges) reason += "HasChanges ";
+                        if (line.DisplayOrder != line.Index + 1) reason += "DisplayOrder ";
+                        if (line.TextId > 0 && !line.IsHeadingLine) reason += "ExistingText ";
+                        if (line.IsHeadingLine && line.CategoryId > 0) reason += "Heading ";
+
+                        Debug.WriteLine($"  - '{line.Content}' (Reason: {reason.Trim()})");
+                    }
 
                     if (!changedLines.Any())
                     {
@@ -1247,12 +1268,10 @@ namespace Notea.Modules.Subject.ViewModels
                     }
 
                     Debug.WriteLine($"[SAVE] {changedLines.Count}개 라인 저장 시작");
-                    DebugPrintCurrentState();
 
                     using var transaction = NoteRepository.BeginTransaction();
                     try
                     {
-                        // 먼저 모든 DisplayOrder 업데이트
                         UpdateAllDisplayOrders(transaction);
 
                         foreach (var line in changedLines)
@@ -1267,6 +1286,7 @@ namespace Notea.Modules.Subject.ViewModels
                         foreach (var line in changedLines)
                         {
                             line.ResetChanges();
+                            Debug.WriteLine($"[SAVE] ResetChanges 호출: '{line.Content}' -> HasChanges: {line.HasChanges}");
                         }
                     }
                     catch (Exception ex)
