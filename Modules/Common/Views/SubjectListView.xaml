@@ -38,14 +38,14 @@
                                 <DataTemplate>
                                     <StackPanel>
                                         <!-- 토픽 그룹 제목 - 드래그 가능 -->
-                                        <Grid Height="60" VerticalAlignment="Center" Background="Transparent"
+                                        <Grid VerticalAlignment="Center" Style="{StaticResource SubjectGridHoverEffecte}"
                                               MouseLeftButtonDown="TopicGroup_MouseLeftButtonDown"
                                               MouseMove="TopicGroup_MouseMove">
                                             <Grid.ColumnDefinitions>
                                                 <ColumnDefinition Width="*" />
                                                 <ColumnDefinition Width="20" />
                                             </Grid.ColumnDefinitions>
-                                            <TextBlock Grid.Column="0" Text="{Binding GroupTitle}" Margin="20,0" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
+                                            <TextBlock Grid.Column="0" Text="{Binding GroupTitle}" Margin="20" FontSize="14" FontWeight="Bold" VerticalAlignment="Center"/>
                                             <!-- Topics가 있을 때만 펼치기 버튼 표시 -->
                                             <Button Grid.Column="1" Command="{Binding ToggleCommand}" Style="{StaticResource FolderButtonStyle}" VerticalAlignment="Center"
                                                     Visibility="{Binding Topics, Converter={StaticResource HasItemsToVisibilityConverter}}"/>

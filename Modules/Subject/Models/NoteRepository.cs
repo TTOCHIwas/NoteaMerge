@@ -452,33 +452,31 @@ namespace Notea.Modules.Subject.Models
                     updateStudySessionCmd.Parameters.AddWithValue("@categoryId", categoryId);
                     int updatedSessions = updateStudySessionCmd.ExecuteNonQuery();
 
-                    // ✅ 2단계: DailySubject 테이블에서 CategoryId 참조 제거 (있다면)
-                    var updateDailySubjectCmd = conn.CreateCommand();
-                    updateDailySubjectCmd.Transaction = transaction;
-                    updateDailySubjectCmd.CommandText = "UPDATE DailySubject SET CategoryId = NULL WHERE CategoryId = @categoryId";
-                    updateDailySubjectCmd.Parameters.AddWithValue("@categoryId", categoryId);
-                    int updatedDailySubjects = updateDailySubjectCmd.ExecuteNonQuery();
+                    var deleteCategoryStudyTimeCmd = conn.CreateCommand();
+                    deleteCategoryStudyTimeCmd.Transaction = transaction;
+                    deleteCategoryStudyTimeCmd.CommandText = "DELETE FROM CategoryStudyTime WHERE CategoryId = @categoryId";
+                    deleteCategoryStudyTimeCmd.Parameters.AddWithValue("@categoryId", categoryId);
+                    int deletedCategoryStudyTime = deleteCategoryStudyTimeCmd.ExecuteNonQuery();
+
+                    // ✅ 신규 추가: SubjectFocusSession 테이블에서 CategoryId 참조 제거
+                    var updateSubjectFocusSessionCmd = conn.CreateCommand();
+                    updateSubjectFocusSessionCmd.Transaction = transaction;
+                    updateSubjectFocusSessionCmd.CommandText = @"
+        UPDATE SubjectFocusSession 
+        SET CategoryId = NULL 
+        WHERE CategoryId = @categoryId";
+                    updateSubjectFocusSessionCmd.Parameters.AddWithValue("@categoryId", categoryId);
+                    int updatedFocusSessions = updateSubjectFocusSessionCmd.ExecuteNonQuery();
+
 
                     // ✅ 3단계: DailyTopicGroup 테이블에서 해당 카테고리 제거
                     var deleteDailyTopicGroupCmd = conn.CreateCommand();
                     deleteDailyTopicGroupCmd.Transaction = transaction;
-                    deleteDailyTopicGroupCmd.CommandText = "DELETE FROM DailyTopicGroup WHERE CategoryId = @categoryId";
+                    deleteDailyTopicGroupCmd.CommandText = @"
+    DELETE FROM DailyTopicGroup 
+    WHERE GroupTitle = (SELECT title FROM category WHERE categoryId = @categoryId)";
                     deleteDailyTopicGroupCmd.Parameters.AddWithValue("@categoryId", categoryId);
                     int deletedDailyGroups = deleteDailyTopicGroupCmd.ExecuteNonQuery();
-
-                    // ✅ 4단계: DailyTopicItem 테이블에서 해당 카테고리 제거  
-                    var deleteDailyTopicItemCmd = conn.CreateCommand();
-                    deleteDailyTopicItemCmd.Transaction = transaction;
-                    deleteDailyTopicItemCmd.CommandText = "DELETE FROM DailyTopicItem WHERE CategoryId = @categoryId";
-                    deleteDailyTopicItemCmd.Parameters.AddWithValue("@categoryId", categoryId);
-                    int deletedDailyItems = deleteDailyTopicItemCmd.ExecuteNonQuery();
-
-                    // ✅ 5단계: TopicItem 테이블에서 해당 카테고리 제거
-                    var deleteTopicItemCmd = conn.CreateCommand();
-                    deleteTopicItemCmd.Transaction = transaction;
-                    deleteTopicItemCmd.CommandText = "DELETE FROM TopicItem WHERE categoryId = @categoryId";
-                    deleteTopicItemCmd.Parameters.AddWithValue("@categoryId", categoryId);
-                    int deletedTopicItems = deleteTopicItemCmd.ExecuteNonQuery();
 
                     // ✅ 6단계: 카테고리의 텍스트 삭제
                     int deletedTexts = 0;
@@ -512,14 +510,6 @@ namespace Notea.Modules.Subject.Models
 
                     transaction.Commit();
 
-                    Debug.WriteLine($"[DB] 카테고리 삭제 완료: CategoryId={categoryId}");
-                    Debug.WriteLine($"  - StudySession CategoryId 제거: {updatedSessions}개");
-                    Debug.WriteLine($"  - DailySubject 참조 제거: {updatedDailySubjects}개");
-                    Debug.WriteLine($"  - DailyTopicGroup 삭제: {deletedDailyGroups}개");
-                    Debug.WriteLine($"  - DailyTopicItem 삭제: {deletedDailyItems}개");
-                    Debug.WriteLine($"  - TopicItem 삭제: {deletedTopicItems}개");
-                    Debug.WriteLine($"  - 텍스트 삭제: {deletedTexts}개");
-                    Debug.WriteLine($"  - 하위 카테고리 재할당: {updatedChildren}개");
                 }
                 catch (Exception ex)
                 {

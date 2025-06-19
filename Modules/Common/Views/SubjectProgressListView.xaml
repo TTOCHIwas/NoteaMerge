@@ -43,11 +43,10 @@
                                                    MouseMove="SubjectName_MouseMove"
                                                    Background="Transparent"/>
 
-                                        <!-- ✅ 새로 추가: 학습시간 표시 (작은 텍스트) --><!--
                                         <TextBlock Text="{Binding StudyTimeText}" 
                                                    FontSize="11"
                                                    Foreground="#0066CC"
-                                                   Margin="0,2,0,0"/>-->
+                                                   Margin="0,2,0,0"/>
                                     </StackPanel>
 
                                     <!-- ✅ 실제 측정된 진행률바 (기존과 동일) -->
@@ -138,12 +137,12 @@
                                                                     </MultiBinding>
                                                                 </Rectangle.Width>
                                                             </Rectangle>
-                                                            <!--<TextBlock Text="{Binding RealTimeStudyTimeDisplay}" 
+                                                            <TextBlock Text="{Binding RealTimeStudyTimeDisplay}" 
                                                                         Style="{StaticResource subjectTitleStyle}"
                                                                         HorizontalAlignment="Right"
                                                                         FontSize="10"
                                                                         Foreground="{StaticResource black}"
-                                                                        Margin="0,1,0,0"/>-->
+                                                                        Margin="0,1,0,0"/>
                                                         </Grid>
                                                         
 

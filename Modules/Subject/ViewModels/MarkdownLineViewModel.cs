@@ -354,7 +354,6 @@ namespace Notea.Modules.Subject.ViewModels
                         IsHeadingLine = false;
                         Level = 0;
                         TextId = 0; // 새로운 텍스트로 생성되도록
-                                    // ✅ CategoryId는 1로 유지 (기본 카테고리)
                         CategoryId = CategoryId <= 0 ? 1 : CategoryId;
                         return;
                     }
