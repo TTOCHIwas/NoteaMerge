@@ -21,6 +21,7 @@ namespace Notea.Modules.Subject.Views
         public NoteEditorView()
         {
             InitializeComponent();
+            DataContextChanged += DataContext_Changed;
         }
 
         private bool _isInternalFocusChange = false;
@@ -106,6 +107,112 @@ namespace Notea.Modules.Subject.Views
             }
         }
 
+        private void DataContext_Changed(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            // 기존 이벤트 구독 해제
+            if (e.OldValue is NoteEditorViewModel oldVM)
+            {
+                oldVM.ScrollToCategoryRequested -= OnScrollToCategoryRequested;
+            }
+
+            // 새 이벤트 구독
+            if (e.NewValue is NoteEditorViewModel newVM)
+            {
+                newVM.ScrollToCategoryRequested += OnScrollToCategoryRequested;
+            }
+        }
+
+        private void OnScrollToCategoryRequested(object sender, int categoryId)
+        {
+            System.Diagnostics.Debug.WriteLine($"[NoteEditorView] Category {categoryId}로 스크롤 시작");
+
+            try
+            {
+                // ItemsControlContainer에서 해당 CategoryId를 가진 항목 찾기
+                if (ItemsControlContainer?.Items != null)
+                {
+                    for (int i = 0; i < ItemsControlContainer.Items.Count; i++)
+                    {
+                        if (ItemsControlContainer.Items[i] is MarkdownLineViewModel line &&
+                            line.CategoryId == categoryId &&
+                            line.IsHeadingLine)
+                        {
+                            // 해당 항목의 컨테이너 찾기
+                            var container = ItemsControlContainer.ItemContainerGenerator.ContainerFromIndex(i) as FrameworkElement;
+
+                            if (container != null)
+                            {
+                                // ScrollViewer 찾기
+                                var scrollViewer = FindScrollViewer(this);
+                                if (scrollViewer != null)
+                                {
+                                    // 컨테이너의 위치로 스크롤
+                                    var transform = container.TransformToAncestor(scrollViewer);
+                                    var position = transform.Transform(new Point(0, 0));
+
+                                    scrollViewer.ScrollToVerticalOffset(position.Y);
+
+                                    // 약간의 지연 후 포커스 설정
+                                    Dispatcher.BeginInvoke(System.Windows.Threading.DispatcherPriority.Loaded,
+                                        new Action(() => {
+                                            var textBox = FindVisualChild<TextBox>(container);
+                                            if (textBox != null)
+                                            {
+                                                textBox.Focus();
+                                                System.Diagnostics.Debug.WriteLine($"[NoteEditorView] Category {categoryId} 스크롤 및 포커스 완료");
+                                            }
+                                        }));
+                                }
+                            }
+
+                            return;
+                        }
+                    }
+                }
+
+                System.Diagnostics.Debug.WriteLine($"[NoteEditorView] Category {categoryId}를 찾을 수 없음");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[NoteEditorView] 스크롤 오류: {ex.Message}");
+            }
+        }
+
+        private ScrollViewer FindScrollViewer(DependencyObject parent)
+        {
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+
+                if (child is ScrollViewer scrollViewer)
+                    return scrollViewer;
+
+                var result = FindScrollViewer(child);
+                if (result != null)
+                    return result;
+            }
+
+            return null;
+        }
+
+        private T FindVisualChild<T>(DependencyObject parent) where T : DependencyObject
+        {
+            if (parent == null) return null;
+
+            for (int i = 0; i < VisualTreeHelper.GetChildrenCount(parent); i++)
+            {
+                var child = VisualTreeHelper.GetChild(parent, i);
+
+                if (child is T result)
+                    return result;
+
+                var childOfChild = FindVisualChild<T>(child);
+                if (childOfChild != null)
+                    return childOfChild;
+            }
+
+            return null;
+        }
         private string GetSubjectNameFromId(int subjectId)
         {
             try
@@ -128,6 +235,8 @@ namespace Notea.Modules.Subject.Views
                 return null;
             }
         }
+
+
 
         // 한글 입력 시 실시간으로 placeholder 숨기기
         private void TextBox_PreviewTextInput(object sender, TextCompositionEventArgs e)

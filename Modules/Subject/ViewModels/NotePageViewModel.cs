@@ -241,7 +241,26 @@ namespace Notea.Modules.Subject.ViewModels
             }
         }
 
+        public void ScrollToCategory(int categoryId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] Category {categoryId}로 스크롤 요청");
 
+                if (EditorViewModel != null)
+                {
+                    EditorViewModel.ScrollToCategory(categoryId);
+                }
+                else
+                {
+                    System.Diagnostics.Debug.WriteLine("[NotePageViewModel] EditorViewModel이 null이어서 스크롤 불가");
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[NotePageViewModel] Category 스크롤 오류: {ex.Message}");
+            }
+        }
 
         // View가 닫힐 때 호출
         public void SaveChanges()

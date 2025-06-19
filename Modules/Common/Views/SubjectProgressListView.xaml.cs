@@ -68,6 +68,61 @@ namespace Notea.Modules.Common.Views
             }
         }
 
+        private DateTime _topicGroupLastClickTime = DateTime.MinValue;
+
+        private void TopicGroup_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+        {
+            if (!_isDragging)
+            {
+                var currentTime = DateTime.Now;
+                var timeSinceLastClick = (currentTime - _topicGroupLastClickTime).TotalMilliseconds;
+
+                if (timeSinceLastClick < DoubleClickInterval)
+                {
+                    HandleTopicGroupDoubleClick(sender, e);
+                }
+                else
+                {
+                    _topicGroupLastClickTime = currentTime;
+                }
+            }
+
+            _isDragging = false;
+        }
+
+        private void HandleTopicGroupDoubleClick(object sender, MouseButtonEventArgs e)
+        {
+            try
+            {
+                var grid = sender as Grid;
+                var topicGroup = grid?.DataContext as TopicGroupViewModel;
+
+                if (topicGroup != null && topicGroup.CategoryId > 0)
+                {
+                    // 부모 Subject 찾기
+                    var parentSubject = FindParentSubject(grid);
+                    if (parentSubject != null)
+                    {
+                        topicGroup.ParentSubjectName = parentSubject.SubjectName;
+                    }
+
+                    var mainWindow = Application.Current.MainWindow;
+                    if (mainWindow?.DataContext is MainViewModel mainViewModel)
+                    {
+                        if (mainViewModel.NavigateToNoteEditorWithCategoryCommand.CanExecute(topicGroup))
+                        {
+                            mainViewModel.NavigateToNoteEditorWithCategoryCommand.Execute(topicGroup);
+                            System.Diagnostics.Debug.WriteLine($"[SubjectProgressListView] TopicGroup '{topicGroup.GroupTitle}' (CategoryId: {topicGroup.CategoryId}) 더블클릭 - 필기 화면으로 이동");
+                        }
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[SubjectProgressListView] TopicGroup 더블클릭 처리 오류: {ex.Message}");
+            }
+        }
+
         private void SubjectProgressItem_MouseLeftButtonUp(object sender, MouseButtonEventArgs e)
         {
             if (!_isDragging)

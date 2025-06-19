@@ -68,6 +68,63 @@ namespace Notea.ViewModels
             }
         }
 
+        public void NavigateToNoteEditorWithCategory(string subjectName, int categoryId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] Category 클릭으로 필기 화면 이동 - Subject: {subjectName}, CategoryId: {categoryId}");
+
+                // 기존 필기 화면 저장
+                SaveCurrentNotePageIfExists();
+
+                // SubjectId 조회
+                int subjectId = Notea.Modules.Subject.Models.NoteRepository.GetSubjectIdByName(subjectName);
+
+                if (subjectId <= 0)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[MainViewModel] 과목 '{subjectName}'을 찾을 수 없습니다.");
+                    return;
+                }
+
+                _currentSelectedSubject = subjectName;
+                _currentSelectedSubjectId = subjectId;
+
+                // 필기 화면용 ViewModel 생성
+                _notePageVM = new Notea.Modules.Subject.ViewModels.NotePageViewModel();
+
+                // Header와 Body View 생성하고 DataContext 설정
+                _notePageHeaderView = new Notea.Modules.Subject.Views.NotePageHeaderView { DataContext = _notePageVM };
+                _notePageBodyView = new Notea.Modules.Subject.Views.NotePageBodyView { DataContext = _notePageVM };
+
+                // 과목 정보 설정
+                _notePageVM.SetSubject(subjectId, subjectName);
+
+                // 특정 Category로 스크롤 (약간의 지연 필요)
+                System.Windows.Threading.Dispatcher.CurrentDispatcher.BeginInvoke(
+                    System.Windows.Threading.DispatcherPriority.Loaded,
+                    new Action(() => {
+                        _notePageVM.ScrollToCategory(categoryId);
+                    })
+                );
+
+                // 필기 화면으로 전환
+                HeaderContent = _notePageHeaderView;
+                BodyContent = _notePageBodyView;
+
+                // 왼쪽 사이드바 설정
+                SidebarViewModel.SetContext("today");
+                SidebarViewModel.SetSharedSubjectProgress(SharedSubjectProgress);
+
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] Category {categoryId}로 필기 화면 이동 완료");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[MainViewModel] Category 필기 화면 이동 오류: {ex.Message}");
+            }
+        }
+        public ICommand NavigateToNoteEditorWithCategoryCommand { get; }
+
+
         private void ToggleSidebar()
         {
             try
@@ -198,7 +255,7 @@ private UserControl _headerContent;
             _monthlyPlanVM = new MonthlyPlanViewModel();
             _yearMonthListVM = new YearMonthListViewModel();
 
-
+            NavigateToNoteEditorWithCategoryCommand = new RelayCommand<object>(ExecuteNavigateToNoteEditorWithCategory);
             _dailyBodyVM.SetSharedSubjects(SharedSubjectProgress);
 
             _dailyHeaderView = new DailyHeaderView { DataContext = _dailyHeaderVM };
@@ -243,6 +300,26 @@ private UserControl _headerContent;
             catch (Exception ex)
             {
                 System.Diagnostics.Debug.WriteLine($"[MainViewModel] 초기화 오류: {ex.Message}");
+            }
+        }
+
+        private void ExecuteNavigateToNoteEditorWithCategory(object parameter)
+        {
+            if (parameter is TopicGroupViewModel topicGroup)
+            {
+                // 부모 Subject 이름 찾기
+                string subjectName = topicGroup.ParentSubjectName;
+
+                if (string.IsNullOrEmpty(subjectName))
+                {
+                    // 현재 선택된 Subject 사용
+                    subjectName = _currentSelectedSubject;
+                }
+
+                if (!string.IsNullOrEmpty(subjectName) && topicGroup.CategoryId > 0)
+                {
+                    NavigateToNoteEditorWithCategory(subjectName, topicGroup.CategoryId);
+                }
             }
         }
 

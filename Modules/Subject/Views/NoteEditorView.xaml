@@ -128,7 +128,7 @@
 
                             <!-- 이미지 콘텐츠 -->
                             <Border Visibility="{Binding IsImage, Converter={StaticResource BoolToVisibilityConverter}}"
-                                    Margin="4" BorderBrush="#CCCCCC" BorderThickness="1">
+                                    Margin="4" BorderThickness="0">
                                 <Grid>
                                     <Image Source="{Binding ImageUrl, Converter={StaticResource ImagePathConverter}}" 
                                            MaxHeight="400" 

@@ -87,7 +87,7 @@
                                                       Style="{StaticResource SubjectGridHoverEffecte}"
                                                       MouseLeftButtonDown="TopicGroup_MouseLeftButtonDown"
                                                       MouseMove="TopicGroup_MouseMove"
-                                                      >
+                                                      MouseLeftButtonUp="TopicGroup_MouseLeftButtonUp">
                                                     <Grid.ColumnDefinitions>
                                                         <!-- 체크박스, 분류명 -->
                                                         <ColumnDefinition Width="*"/>
@@ -148,7 +148,6 @@
 
                                                     </Border>
 
-                                                    <!-- ✅ 새로 추가: 분류별 진행률 퍼센트 -->
                                                     <TextBlock Grid.Column="2" 
                                                                Margin="0, 0, 20, 0"
                                                                Text="{Binding ProgressRatioPercentText}" 

@@ -776,6 +776,21 @@ namespace Notea.Modules.Subject.ViewModels
                 throw;
             }
         }
+        public event EventHandler<int> ScrollToCategoryRequested;
+        public void ScrollToCategory(int categoryId)
+        {
+            try
+            {
+                System.Diagnostics.Debug.WriteLine($"[NoteEditorViewModel] Category {categoryId}로 스크롤 이벤트 발생");
+
+                // View에 스크롤 요청
+                ScrollToCategoryRequested?.Invoke(this, categoryId);
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[NoteEditorViewModel] Category 스크롤 오류: {ex.Message}");
+            }
+        }
 
         private void ScheduleSubsequentCategoryUpdate(MarkdownLineViewModel newHeadingLine)
         {
